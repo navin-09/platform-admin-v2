@@ -1,5 +1,6 @@
+"""Audit log listing routes."""
+
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_admin
 from app.core.constants import (
@@ -9,7 +10,6 @@ from app.core.constants import (
     MIN_PAGE,
     MIN_PAGE_SIZE,
 )
-from app.database.database import get_db
 from app.models.audit_log import AuditLog
 from app.models.enums import (
     AuditAction,
@@ -36,21 +36,19 @@ async def list_audit_logs(
     resource_type: AuditResourceTypeFilter = Query(
         AuditResourceTypeFilter.ALL, description="Filter by resource type"
     ),
-    db: AsyncSession = Depends(get_db),
     _admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[AuditLogListData]:
     """List audit log entries, paginated and filterable by actor, action, or resource type."""
-    action_value = resolve_filter(action, AuditAction)
-    resource_type_value = resolve_filter(resource_type, AuditResourceType)
+    action_value = resolve_filter(value=action, base=AuditAction)
+    resource_type_value = resolve_filter(value=resource_type, base=AuditResourceType)
     entries, total = await audit_service.list_audit_logs(
-        db,
         page=page,
         limit=limit,
         actor=actor,
         action=action_value,
         resource_type=resource_type_value,
     )
-    body = _to_audit_log_list_data(entries, page, limit, total)
+    body = _to_audit_log_list_data(entries=entries, page=page, limit=limit, total=total)
     return ApiResponse(code=CODE_LISTED, message=MSG_LISTED, data=body)
 
 
@@ -63,6 +61,6 @@ def _to_audit_log_list_data(
             page=page,
             limit=limit,
             total_items=total,
-            total_pages=total_pages(total, limit),
+            total_pages=total_pages(total_items=total, limit=limit),
         ),
     )

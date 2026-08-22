@@ -10,15 +10,14 @@ from app.models.enums import UserStatus
 from app.schemas.common import Pagination
 from app.utils.validate import validate_slug_format
 
-PASSWORD_PATTERN = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$")
+PASSWORD_PATTERN = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,13}$")
 PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 13
 CREDENTIAL_STRENGTH_RULES = (
-    "Password must be at least 8 characters and include an uppercase letter, a "
+    "Password must be 8 to 13 characters and include an uppercase letter, a "
     "lowercase letter, a number, and a special character"
 )
-PASSWORD_EXAMPLE = (
-    r'z8VkP9_3mXq~\h$M((G mTN|fBCSvH*xi<q$V~Iy2D"U(eG#C":CG),Ri>G[A\bTIT5ZAYpRFE;cHdY1'  # noqa: S105  # nosec B105  (example password shown in OpenAPI docs, not a real secret)
-)
+PASSWORD_EXAMPLE = "S3cureP@ss"  # noqa: S105  # nosec B105  (example shown in OpenAPI docs, not a real secret)
 
 
 def validate_password_strength(value: str) -> str:
@@ -37,6 +36,7 @@ PasswordStr = Annotated[
     str,
     Field(
         min_length=PASSWORD_MIN_LENGTH,
+        max_length=PASSWORD_MAX_LENGTH,
         examples=[PASSWORD_EXAMPLE],
         description=CREDENTIAL_STRENGTH_RULES,
     ),

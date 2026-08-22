@@ -1,7 +1,7 @@
+"""Audit recording and listing business logic."""
+
 import logging
 from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.tracing import traced
@@ -13,8 +13,6 @@ logger = logging.getLogger("app.services.audit")
 
 @traced("audit_service.record")
 async def record(
-    db: AsyncSession,
-    *,
     actor: str | None,
     action: str,
     resource_type: str | None = None,
@@ -26,7 +24,6 @@ async def record(
 ) -> None:
     try:
         await audit_repository.create_audit_log(
-            db,
             actor=actor,
             action=action,
             resource_type=resource_type,
@@ -42,8 +39,6 @@ async def record(
 
 @traced("audit_service.list_audit_logs")
 async def list_audit_logs(
-    db: AsyncSession,
-    *,
     page: int = DEFAULT_PAGE,
     limit: int = DEFAULT_PAGE_SIZE,
     actor: str | None = None,
@@ -51,5 +46,5 @@ async def list_audit_logs(
     resource_type: str | None = None,
 ) -> tuple[list[AuditLog], int]:
     return await audit_repository.list_audit_logs(
-        db, page=page, limit=limit, actor=actor, action=action, resource_type=resource_type
+        page=page, limit=limit, actor=actor, action=action, resource_type=resource_type
     )

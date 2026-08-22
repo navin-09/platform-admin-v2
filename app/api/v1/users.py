@@ -1,7 +1,8 @@
+"""User CRUD routes."""
+
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.audit import record_audit
 from app.api.deps import get_current_admin
@@ -12,7 +13,6 @@ from app.core.constants import (
     MIN_PAGE,
     MIN_PAGE_SIZE,
 )
-from app.database.database import get_db
 from app.models.enums import (
     AuditAction,
     AuditResourceType,
@@ -50,14 +50,12 @@ router = APIRouter(tags=["Users"])
 async def create_user(
     data: UserCreate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
     _admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[UserRead]:
     """Create a new user with a name, email, and password."""
-    user = await user_service.create_user(db, data)
+    user = await user_service.create_user(data)
     await record_audit(
-        db,
-        request,
+        request=request,
         actor=_admin.username,
         action=AuditAction.USER_CREATE,
         resource_type=AuditResourceType.USER,
@@ -73,26 +71,24 @@ async def list_users(
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=MIN_PAGE_SIZE, le=MAX_PAGE_SIZE),
     search: str | None = Query(None, description="Search by name or email"),
     status: UserStatusFilter = Query(UserStatusFilter.ALL, description="Filter by user status"),
-    db: AsyncSession = Depends(get_db),
     _admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[UserListData]:
     """List users, paginated and optionally filtered by search text or status."""
-    status_value = resolve_filter(status, UserStatus)
+    status_value = resolve_filter(value=status, base=UserStatus)
     users, total = await user_service.list_users(
-        db, page=page, limit=limit, search=search, status=status_value
+        page=page, limit=limit, search=search, status=status_value
     )
-    body = _to_user_list_data(users, page, limit, total)
+    body = _to_user_list_data(users=users, page=page, limit=limit, total=total)
     return ApiResponse(code=CODE_LISTED, message=MSG_LISTED, data=body)
 
 
 @router.get("/{user_id}", response_model=ApiResponse[UserRead], summary="Get a user")
 async def get_user(
     user_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
     _admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[UserRead]:
     """Fetch a single user by id."""
-    user = await user_service.get_user(db, user_id)
+    user = await user_service.get_user(user_id)
     return ApiResponse(code=CODE_FETCHED, message=MSG_FETCHED, data=user)
 
 
@@ -101,14 +97,12 @@ async def replace_user(
     user_id: uuid.UUID,
     data: UserReplace,
     request: Request,
-    db: AsyncSession = Depends(get_db),
     _admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[UserRead]:
     """Replace a user's name, email, and password; status is left unchanged."""
-    user = await user_service.replace_user(db, user_id, data)
+    user = await user_service.replace_user(user_id=user_id, data=data)
     await record_audit(
-        db,
-        request,
+        request=request,
         actor=_admin.username,
         action=AuditAction.USER_REPLACE,
         resource_type=AuditResourceType.USER,
@@ -123,14 +117,12 @@ async def update_user(
     user_id: uuid.UUID,
     data: UserUpdate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
     _admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[UserRead]:
     """Partially update a user's name, email, or status."""
-    user = await user_service.update_user(db, user_id, data)
+    user = await user_service.update_user(user_id=user_id, data=data)
     await record_audit(
-        db,
-        request,
+        request=request,
         actor=_admin.username,
         action=AuditAction.USER_UPDATE,
         resource_type=AuditResourceType.USER,
@@ -144,14 +136,12 @@ async def update_user(
 async def delete_user(
     user_id: uuid.UUID,
     request: Request,
-    db: AsyncSession = Depends(get_db),
     _admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[None]:
     """Delete a user by id."""
-    await user_service.delete_user(db, user_id)
+    await user_service.delete_user(user_id)
     await record_audit(
-        db,
-        request,
+        request=request,
         actor=_admin.username,
         action=AuditAction.USER_DELETE,
         resource_type=AuditResourceType.USER,
@@ -167,6 +157,6 @@ def _to_user_list_data(users: list[User], page: int, limit: int, total: int) -> 
             page=page,
             limit=limit,
             total_items=total,
-            total_pages=total_pages(total, limit),
+            total_pages=total_pages(total_items=total, limit=limit),
         ),
     )

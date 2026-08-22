@@ -27,14 +27,13 @@ class ErrorSpec:
 VALIDATION_FAILED = ErrorSpec(422, "E_422_VALIDATION_FAILED", "Validation failed")
 USER_NOT_FOUND = ErrorSpec(404, "E_404_USR_NOT_FOUND", "User not found")
 EMAIL_EXISTS = ErrorSpec(409, "E_409_USR_EMAIL_EXISTS", "Email is already registered")
-INVALID_CREDENTIALS = ErrorSpec(
-    401, "E_401_AUTH_INVALID_CREDENTIALS", "Invalid email or password"
-)
+INVALID_CREDENTIALS = ErrorSpec(401, "E_401_AUTH_INVALID_CREDENTIALS", "Invalid email or password")
 NOT_AUTHENTICATED = ErrorSpec(401, "E_401_NOT_AUTHENTICATED", "Not authenticated")
 ACCOUNT_INACTIVE = ErrorSpec(403, "E_403_AUTH_ACCOUNT_INACTIVE", "This account is inactive")
 INTERNAL_ERROR = ErrorSpec(
     500, "E_500_INTERNAL_ERROR", "Something went wrong. Please try again later."
 )
+HEALTH_DOWN = ErrorSpec(503, "E_503_HEALTH_DOWN", "Service is unhealthy")
 
 
 def _make(spec: ErrorSpec, data: dict[str, Any] | None = None) -> ApiError:
@@ -67,3 +66,7 @@ def not_authenticated() -> ApiError:
 
 def account_inactive() -> ApiError:
     return _make(ACCOUNT_INACTIVE)
+
+
+def service_unavailable() -> ApiError:
+    return _make(HEALTH_DOWN)

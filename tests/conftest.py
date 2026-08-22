@@ -1,30 +1,16 @@
+"""Pytest configuration and shared fixtures.
+
+Environment variables are set here *before* any ``app.*`` import. This matters
+because ``app.core.config`` instantiates ``Settings()`` at import time, and
+``database_url`` / ``secret_key`` are required (no defaults). Injecting test
+values here keeps the suite independent of a developer's local ``.env`` and of
+CI secrets.
+"""
+
 import os
-from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
-# Must run before any `app` import (pytest imports conftest first). Lets
-# Settings() load in CI and fresh checkouts where there is no `.env`.
-os.environ.setdefault(
-    "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/platform_admin_v2"
-)
-os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests")
-
-
-@pytest.fixture()
-def client():
-    from fastapi.testclient import TestClient
-
-    from app.database.database import get_db
-    from app.main import app
-
-    db = MagicMock()
-    db.execute = AsyncMock(return_value=MagicMock())
-
-    async def override_get_db():
-        yield db
-
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
+# ``setdefault`` avoids clobbering values already present in the environment.
+# The URL value is irrelevant to the unit tests (all DB access is mocked), but
+# it must exist for ``Settings()`` to build.
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")

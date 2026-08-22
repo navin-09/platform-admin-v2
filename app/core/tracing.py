@@ -1,27 +1,20 @@
+from __future__ import annotations
+
 import atexit
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import ParamSpec, TypeVar, cast
+from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import FastAPI
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import (
-    BatchSpanProcessor,
-    ConsoleSpanExporter,
-    SpanExporter,
-    SpanExportResult,
-)
-from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from opentelemetry.sdk.trace.export import SpanExporter
 
 logger = logging.getLogger("app.core.tracing")
 
@@ -35,32 +28,6 @@ def _normalize_otlp_endpoint(endpoint: str) -> str:
     return endpoint
 
 
-class FileSpanExporter(SpanExporter):
-    """Append one compact JSON span per line to a file (JSON Lines)."""
-
-    def __init__(self, file_path: str | Path) -> None:
-        self._path = Path(file_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-
-    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        if not spans:
-            return SpanExportResult.SUCCESS
-        lines = "".join(f"{span.to_json(indent=None)}\n" for span in spans)
-        try:
-            with self._path.open("a", encoding="utf-8") as fh:
-                fh.write(lines)
-        except OSError:
-            logger.exception("failed to write spans to %s", self._path)
-            return SpanExportResult.FAILURE
-        return SpanExportResult.SUCCESS
-
-    def shutdown(self) -> None:
-        pass
-
-    def force_flush(self, timeout_millis: int = 30_000) -> bool:
-        return True
-
-
 def get_tracer() -> trace.Tracer:
     return trace.get_tracer(settings.tracing_service_name)
 
@@ -70,6 +37,12 @@ def configure_tracing() -> None:
     global _configured
     if _configured or not settings.tracing_enabled:
         return
+
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
     provider = TracerProvider(
         resource=Resource.create({"service.name": settings.tracing_service_name}),
@@ -84,6 +57,39 @@ def configure_tracing() -> None:
 
 def _build_exporters() -> list[SpanExporter]:
     """Choose span destinations from settings (OTLP > file, console as last resort)."""
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import ReadableSpan
+    from opentelemetry.sdk.trace.export import (
+        ConsoleSpanExporter,
+        SpanExporter,
+        SpanExportResult,
+    )
+
+    class FileSpanExporter(SpanExporter):  # type: ignore[misc]  # optional SDK dep is Any when absent
+        """Append one compact JSON span per line to a file (JSON Lines)."""
+
+        def __init__(self, file_path: str | Path) -> None:
+            self._path = Path(file_path)
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+
+        def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+            if not spans:
+                return SpanExportResult.SUCCESS
+            lines = "".join(f"{span.to_json(indent=None)}\n" for span in spans)
+            try:
+                with self._path.open("a", encoding="utf-8") as fh:
+                    fh.write(lines)
+            except OSError:
+                logger.exception("failed to write spans to %s", self._path)
+                return SpanExportResult.FAILURE
+            return SpanExportResult.SUCCESS
+
+        def shutdown(self) -> None:
+            pass
+
+        def force_flush(self, timeout_millis: int = 30_000) -> bool:
+            return True
+
     exporters: list[SpanExporter] = []
     if settings.tracing_otlp_endpoint:
         exporters.append(
@@ -99,6 +105,8 @@ def _build_exporters() -> list[SpanExporter]:
 def instrument_app(app: FastAPI) -> None:
     """Instrument a FastAPI app's HTTP layer (call once the app exists)."""
     if settings.tracing_enabled:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
         FastAPIInstrumentor.instrument_app(app, exclude_spans=["receive", "send"])
 
 
@@ -122,6 +130,8 @@ def traced(name: str) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Await
 
 def _shutdown() -> None:
     if _configured:
+        from opentelemetry.sdk.trace import TracerProvider
+
         cast(TracerProvider, trace.get_tracer_provider()).shutdown()
 
 

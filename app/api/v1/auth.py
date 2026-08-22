@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+"""Auth routes: login and token refresh."""
+
+from fastapi import APIRouter, Request
 
 from app.api.audit import record_audit
-from app.database.database import get_db
 from app.exceptions.errors import ApiError
 from app.models.enums import AuditAction, AuditResourceType
 from app.schemas.auth import (
@@ -26,15 +26,14 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 async def login(
     credentials: LoginRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[TokenResponse]:
     """Authenticate a platform admin and return access and refresh tokens."""
     try:
-        token = await auth_service.login(db, credentials)
+        token = await auth_service.login(credentials)
     except ApiError:
-        await _audit_login(db, request, credentials, success=False)
+        await _audit_login(request=request, credentials=credentials, success=False)
         raise
-    await _audit_login(db, request, credentials, success=True)
+    await _audit_login(request=request, credentials=credentials, success=True)
     return ApiResponse(code=CODE_LOGIN_OK, message=MSG_LOGIN_OK, data=token)
 
 
@@ -43,21 +42,15 @@ async def login(
     response_model=ApiResponse[TokenResponse],
     summary="Exchange a refresh token for new tokens",
 )
-async def refresh(
-    payload: RefreshRequest,
-    db: AsyncSession = Depends(get_db),
-) -> ApiResponse[TokenResponse]:
+async def refresh(payload: RefreshRequest) -> ApiResponse[TokenResponse]:
     """Exchange a valid refresh token for a new access and refresh token pair."""
-    token = await auth_service.refresh(db, payload)
+    token = await auth_service.refresh(payload)
     return ApiResponse(code=CODE_REFRESH_OK, message=MSG_REFRESH_OK, data=token)
 
 
-async def _audit_login(
-    db: AsyncSession, request: Request, credentials: LoginRequest, *, success: bool
-) -> None:
+async def _audit_login(request: Request, credentials: LoginRequest, success: bool) -> None:
     await record_audit(
-        db,
-        request,
+        request=request,
         actor=credentials.email,
         action=AuditAction.LOGIN_SUCCESS if success else AuditAction.LOGIN_FAILURE,
         resource_type=AuditResourceType.AUTH,

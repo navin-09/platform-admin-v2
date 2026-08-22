@@ -1,16 +1,16 @@
+"""Audit log data access (all SQL)."""
+
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
+from app.database.session import get_session
 from app.models.audit_log import AuditLog
 
 
 async def create_audit_log(
-    db: AsyncSession,
-    *,
     actor: str | None,
     action: str,
     resource_type: str | None = None,
@@ -20,6 +20,7 @@ async def create_audit_log(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> AuditLog:
+    db = get_session()
     entry = AuditLog(
         actor=actor,
         action=action,
@@ -37,14 +38,13 @@ async def create_audit_log(
 
 
 async def list_audit_logs(
-    db: AsyncSession,
-    *,
     page: int = DEFAULT_PAGE,
     limit: int = DEFAULT_PAGE_SIZE,
     actor: str | None = None,
     action: str | None = None,
     resource_type: str | None = None,
 ) -> tuple[list[AuditLog], int]:
+    db = get_session()
     filters = []
     if actor:
         filters.append(col(AuditLog.actor) == actor)

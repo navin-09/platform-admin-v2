@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.api.v1.audit_logs import router as audit_logs_router
 from app.api.v1.auth import router as auth_router
@@ -7,13 +7,20 @@ from app.api.v1.users import router as users_router
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.tracing import instrument_app
+from app.database.database import get_db
 from app.exceptions.handlers import register_exception_handlers
 from app.middleware.logging import AccessLogMiddleware
 from app.middleware.request_context import RequestContextMiddleware
 
 configure_logging()
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+# ``get_db`` runs for every route, so a request-scoped session is available to
+# the repository layer before any endpoint or dependency executes.
+app = FastAPI(
+    title=settings.app_name,
+    version="0.1.0",
+    dependencies=[Depends(get_db)],
+)
 
 register_exception_handlers(app)
 

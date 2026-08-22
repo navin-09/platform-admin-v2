@@ -1,7 +1,7 @@
 """Create (or reset) a Platform Admin directly in the database.
 
 Usage:
-    uv run python scripts/seed_admin.py \\
+    uv run python app/database/scripts/seed_admin.py \\
         --username admin --email admin@example.com --password 'S3cureP@ss'
 """
 

@@ -1,15 +1,14 @@
+"""Request-derived audit context helper."""
+
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import audit_service
 
 
 async def record_audit(
-    db: AsyncSession,
     request: Request,
-    *,
     actor: str | None,
     action: str,
     resource_type: str | None = None,
@@ -18,7 +17,6 @@ async def record_audit(
 ) -> None:
     """Record an audit event with request-derived context (id, ip, user-agent)."""
     await audit_service.record(
-        db,
         actor=actor,
         action=action,
         resource_type=resource_type,

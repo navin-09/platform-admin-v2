@@ -26,7 +26,7 @@ def upgrade() -> None:
     platform_admins moves from a username-keyed table to an id-keyed one with
     email/status/timestamps, and login switches from username to email. There's
     no safe way to backfill email/status for pre-existing rows, so the table is
-    dropped and recreated — re-seed with `scripts/seed_admin.py` afterward.
+    dropped and recreated — re-seed with `app/database/scripts/seed_admin.py` afterward.
     """
     op.drop_table("platform_admins")
     op.create_table(
@@ -40,9 +40,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        op.f("ix_platform_admins_email"), "platform_admins", ["email"], unique=True
-    )
+    op.create_index(op.f("ix_platform_admins_email"), "platform_admins", ["email"], unique=True)
     op.create_index(
         op.f("ix_platform_admins_username"), "platform_admins", ["username"], unique=True
     )
