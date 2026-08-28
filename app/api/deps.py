@@ -7,13 +7,12 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 
-from app.api.audit import record_audit
 from app.core.audit_context import reset_current_actor, set_current_actor
 from app.core.security import decode_token
 from app.exceptions.exceptions import AuthenticationError, PermissionDeniedError
 from app.models.enums import ActorType, AuditAction, AuditResourceType, PermissionName
 from app.models.platform_admin import PlatformAdmin
-from app.services import auth_service, rbac_service
+from app.services import audit_service, auth_service, rbac_service
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -66,8 +65,7 @@ async def _record_denial(
     permission: PermissionName,
 ) -> None:
     """Record an ``access.denied`` Audit Entry before the 403 is raised."""
-    await record_audit(
-        request=request,
+    await audit_service.record(
         actor=admin.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.ACCESS_DENIED,

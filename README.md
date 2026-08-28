@@ -80,7 +80,6 @@ platform-admin/
 │   │       └── seed_rbac.py    # seed RBAC catalog + backfill super_admin (idempotent)
 │   ├── api/
 │   │   ├── deps.py             # auth + permission deps (get_current_admin, require_permission)
-│   │   ├── audit.py            # record_audit helper (explicit audit calls)
 │   │   ├── router.py           # aggregate router mounting v1 routes under /api/v1
 │   │   └── v1/
 │   │       ├── health.py       # GET /api/v1/health
@@ -92,6 +91,7 @@ platform-admin/
 │   ├── core/
 │   │   ├── config.py           # Settings (from env)
 │   │   ├── constants.py        # pagination + header constants
+│   │   ├── audit_context.py    # ambient audit actor + request metadata (ContextVars)
 │   │   ├── security.py         # bcrypt hashing + JWT
 │   │   ├── logging.py          # structured JSON logging + request_id
 │   │   └── tracing.py          # OpenTelemetry setup
@@ -99,7 +99,7 @@ platform-admin/
 │   │   ├── exceptions.py       # AppError hierarchy + stable codes
 │   │   └── exception_handlers.py  # exception → envelope handlers
 │   ├── middleware/
-│   │   ├── request_context.py  # sets request_id per request
+│   │   ├── request_context.py  # sets request_id + request metadata per request
 │   │   └── logging.py          # one access-log line per request
 │   ├── models/
 │   │   ├── __init__.py         # re-exports models (registers tables for Alembic)
