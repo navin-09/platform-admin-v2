@@ -108,7 +108,7 @@ platform-admin/
 │   │   ├── platform_admin.py   # platform_admins table
 │   │   ├── role.py             # roles table
 │   │   ├── screen.py           # screens table
-│   │   ├── role_screen.py  # role → screen read/write grants
+│   │   ├── role_screen.py  # role → screen read/write permissions
 │   │   ├── platform_admin_role.py  # admin → role assignments
 │   │   ├── password_reset_otp.py   # password-reset OTP state (expiry + throttle)
 │   │   ├── password_history.py     # previous hashed passwords (reuse check)
@@ -118,7 +118,7 @@ platform-admin/
 │   │   ├── health_repository.py # DB liveness probe (SELECT 1)
 │   │   ├── user_repository.py  # all user SQL
 │   │   ├── role_repository.py  # all role SQL
-│   │   ├── screen_repository.py # all screen SQL (+ atomic super_admin grant on create)
+│   │   ├── screen_repository.py # all screen SQL (+ atomic super_admin permission on create)
 │   │   ├── rbac_repository.py  # effective permissions lookup (all RBAC SQL)
 │   │   ├── otp_repository.py   # password-reset OTP state SQL
 │   │   ├── password_history_repository.py  # password history SQL
@@ -203,7 +203,7 @@ uv run alembic upgrade head
 
 ### 5. Seed data
 
-Create (or reset) the admin account, seed the RBAC catalog (screens + `super_admin` grants),
+Create (or reset) the admin account, seed the RBAC catalog (screens + `super_admin` permissions),
 and assign `super_admin` — all idempotent:
 
 ```bash

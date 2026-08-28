@@ -29,7 +29,7 @@ async def ensure_catalog(db: AsyncSession) -> None:
     role = await _get_or_create(db, Role, SUPER_ADMIN_ROLE_NAME)
     for code, name, sort_order, read, write in SCREENS:
         await _get_or_create_screen(db, code, name, sort_order)
-        await _get_or_create_grant(db, role.id, code, read=read, write=write)
+        await _get_or_create_permission(db, role.id, code, read=read, write=write)
 
 
 async def assign_super_admin(db: AsyncSession, admin_id: uuid.UUID) -> None:
@@ -79,10 +79,10 @@ async def _get_or_create_screen(db: AsyncSession, code: str, name: str, sort_ord
     return row
 
 
-async def _get_or_create_grant(
+async def _get_or_create_permission(
     db: AsyncSession, role_id: uuid.UUID, screen_code: str, *, read: bool, write: bool
 ) -> RoleScreen:
-    """Return the role's screen grant, creating (and flushing) it if absent."""
+    """Return the role's screen permission row, creating (and flushing) it if absent."""
     row = (
         await db.execute(
             select(RoleScreen).where(

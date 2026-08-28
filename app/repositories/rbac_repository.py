@@ -14,8 +14,8 @@ from app.models.role_screen import RoleScreen
 from app.models.screen import Screen
 
 
-async def screen_grants_for_admin(admin_id: uuid.UUID) -> set[tuple[str, bool, bool]]:
-    """Return the (screen code, read, write) grants for the admin's active roles/screens."""
+async def screen_permissions_for_admin(admin_id: uuid.UUID) -> set[tuple[str, bool, bool]]:
+    """Return the (screen code, read, write) rows for the admin's active roles/screens."""
     db = get_session()
     result = await db.execute(
         select(col(RoleScreen.screen_code), col(RoleScreen.read), col(RoleScreen.write))
@@ -28,10 +28,10 @@ async def screen_grants_for_admin(admin_id: uuid.UUID) -> set[tuple[str, bool, b
             col(Screen.status) == Status.ACTIVE,
         )
     )
-    grants: set[tuple[str, bool, bool]] = set()
+    permissions: set[tuple[str, bool, bool]] = set()
     for row in result.all():
-        grants.add((cast(str, row[0]), cast(bool, row[1]), cast(bool, row[2])))
-    return grants
+        permissions.add((cast(str, row[0]), cast(bool, row[1]), cast(bool, row[2])))
+    return permissions
 
 
 async def role_names_for_admin(admin_id: uuid.UUID) -> set[str]:

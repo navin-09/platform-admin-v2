@@ -10,7 +10,7 @@ async def test_permissions_for_admin_expands_write_to_read() -> None:
     admin_id = uuid.uuid4()
     with patch.object(
         rbac_service.rbac_repository,
-        "screen_grants_for_admin",
+        "screen_permissions_for_admin",
         new=AsyncMock(return_value={("S1", True, True), ("S2", True, False)}),
     ):
         result = await rbac_service.permissions_for_admin(admin_id)
