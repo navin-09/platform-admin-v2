@@ -1,18 +1,18 @@
-"""User repository tests (mocked session)."""
+"""Platform Admin repository tests (mocked session)."""
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.enums import Status
-from app.models.user import User
+from app.models.platform_admin import PlatformAdmin
 from app.repositories import user_repository
 
 
-def _user() -> User:
-    return User(
+def _user() -> PlatformAdmin:
+    return PlatformAdmin(
         id=uuid.uuid4(),
         email="alice@example.com",
-        name="Alice",
+        username="Alice",
         status=Status.ACTIVE,
         hashed_password="hash",
     )
@@ -28,9 +28,9 @@ async def test_get_user_returns_none_when_missing() -> None:
 async def test_get_user_by_email() -> None:
     db = MagicMock()
     db.execute = AsyncMock(return_value=MagicMock())
-    db.execute.return_value.scalar_one_or_none.return_value = "some-user"
+    db.execute.return_value.scalar_one_or_none.return_value = "some-admin"
     with patch.object(user_repository, "get_session", return_value=db):
-        assert await user_repository.get_user_by_email("a@b.com") == "some-user"
+        assert await user_repository.get_user_by_email("a@b.com") == "some-admin"
 
 
 async def test_create_user_commits_and_refreshes() -> None:
@@ -66,9 +66,9 @@ async def test_update_user_applies_fields_and_commits() -> None:
     db.refresh = AsyncMock()
     user = _user()
     with patch.object(user_repository, "get_session", return_value=db):
-        result = await user_repository.update_user(user, {"name": "Bob"})
+        result = await user_repository.update_user(user, {"username": "Bob"})
     assert result is user
-    assert user.name == "Bob"
+    assert user.username == "Bob"
     db.commit.assert_awaited_once()
     db.refresh.assert_awaited_once_with(user)
 
@@ -81,3 +81,11 @@ async def test_delete_user_soft_deletes() -> None:
         await user_repository.delete_user(user)
     assert user.status is Status.INACTIVE
     db.commit.assert_awaited_once()
+
+
+async def test_count_active_admins_excludes_id() -> None:
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=2)
+    with patch.object(user_repository, "get_session", return_value=db):
+        total = await user_repository.count_active_admins(exclude_id=uuid.uuid4())
+    assert total == 2
