@@ -76,7 +76,7 @@ platform-admin/
 │   │   ├── database.py         # async engine, session factory, get_db dependency
 │   │   ├── session.py          # request-scoped session holder (get_session)
 │   │   └── scripts/
-│   │       ├── seed_admin.py   # create/reset Platform Admin(s) + seed catalog + assign super_admin (default: 5 dev admins)
+│   │       ├── seed_admin.py   # create/reset Platform Admin(s) + seed catalog + assign super_admin (default: 10 dev admins)
 │   │       └── seed_rbac.py    # seed RBAC catalog + backfill super_admin (idempotent)
 │   ├── api/
 │   │   ├── deps.py             # auth + permission deps (get_current_admin, require_permission)
@@ -208,7 +208,7 @@ and assign `super_admin` — all idempotent:
 
 ```bash
 uv run python app/database/scripts/seed_admin.py
-# defaults: seeds admin1..admin5@example.com / Admin@1234 (all super_admin)
+# defaults: seeds admin1..admin5@example.com + 5 named team accounts (shiva/kishore/shaktish/satish/naveen@gmail.com) / Admin@1234 (all super_admin)
 ```
 
 Or seed a single admin (e.g. production provisioning):
