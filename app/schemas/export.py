@@ -27,12 +27,7 @@ MSG_DOWNLOADED = "Export downloaded successfully"
 
 
 class AuditExportFilters(BaseModel):
-    """Mirror of the audit-logs list endpoint filters; retained for the export.
-
-    ``extra="forbid"``: a filters payload must match exactly one module's shape.
-    Silently ignoring unknown fields would drop filters (e.g. a users payload
-    parsed as audit filters) — invariant ③: no guessing, no silent degradation.
-    """
+    """Audit-logs list filters retained for the export (extra=forbid: no silent drops)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -53,9 +48,7 @@ class UsersExportFilters(BaseModel):
 
 class ExportCreate(BaseModel):
     module: Literal["audit", "users"]
-    # BRD §6.6: Export Reason is mandatory. StringConstraints strips whitespace
-    # BEFORE the length check, so "   " fails min_length (Field-level
-    # str_strip_whitespace is silently ignored by pydantic 2.13).
+    # Reason is mandatory; StringConstraints strips whitespace BEFORE the length check.
     reason: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=EXPORT_REASON_MAX_LENGTH),

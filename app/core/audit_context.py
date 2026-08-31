@@ -1,8 +1,4 @@
-"""Ambient audit-actor context (set at the boundary, read by the service layer).
-
-The actor is a property of the request, not of the business operation, so it
-travels in a ContextVar rather than through service signatures (ADR-0014).
-"""
+"""Ambient audit-actor and request-metadata context (ContextVars)."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager

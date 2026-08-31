@@ -1,9 +1,4 @@
-"""Export schema unit tests — every success and failure validation case.
-
-Pure pydantic validation: no DB, no services. Cases are paired
-(``success`` / ``failure_<condition>``) so the full contract is visible at a
-glance and new rules slot in next to their counterparts.
-"""
+"""Export schema unit tests — every success and failure validation case."""
 
 import pytest
 from pydantic import ValidationError
@@ -31,7 +26,7 @@ async def test_module_failure_unknown_value() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# reason (BRD §6.6: mandatory)
+# reason (mandatory)
 # --------------------------------------------------------------------------- #
 
 
@@ -46,7 +41,7 @@ async def test_reason_failure_blank() -> None:
 
 
 async def test_reason_failure_whitespace_only() -> None:
-    """Three spaces are not a reason — BRD says the Export Reason is mandatory."""
+    """Three spaces are not a reason — the export reason is mandatory."""
     with pytest.raises(ValidationError):
         ExportCreate(module="audit", reason="   ")
 
@@ -187,8 +182,7 @@ async def test_filters_failure_mixed_shape_rejected_at_schema() -> None:
 
 
 async def test_filters_failure_cross_module_shape_parses_but_is_service_rejected() -> None:
-    """A purely wrong-module shape parses (the union cannot see ``module``);
-    rejection happens in the service (see test_export_service.py)."""
+    """A purely wrong-module shape parses (the union cannot see module); the service rejects it."""
     parsed = ExportCreate.model_validate(
         {"module": "audit", "reason": "r", "filters": {"search": "x"}}
     )

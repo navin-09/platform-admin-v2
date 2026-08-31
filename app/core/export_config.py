@@ -1,9 +1,4 @@
-"""Per-module export specifications: authorized fields, labels, classification.
-
-The BRD (§6.6 / §19.2) requires every export to carry only authorized fields,
-masking where needed, its classification, and retained filters. Each module that
-supports export declares one ``ExportSpec`` here; the engine stays generic.
-"""
+"""Per-module export specs: authorized fields, labels, classification."""
 
 from dataclasses import dataclass
 
@@ -19,9 +14,7 @@ class ExportSpec:
     columns: tuple[tuple[str, str], ...]
 
 
-# Audit exports are Restricted (BRD §17.7). Details/payload/response are included
-# as JSON text for complete evidence; credentials are already redacted at write
-# time by the audit pipeline itself (app/utils/redact.py).
+# Audit exports are Restricted; details are included as JSON (already redacted at write time).
 AUDIT_EXPORT_SPEC = ExportSpec(
     module="audit",
     label="Audit Logs",
@@ -47,9 +40,7 @@ AUDIT_EXPORT_SPEC = ExportSpec(
 )
 
 
-# Users (Platform Admins) — Confidential per BRD §4.4 (user screens).
-# Credentials and session state (hashed_password, refresh jti, lock state) are
-# deliberately NOT in the allow-list — BRD §6.6: credentials never exportable.
+# Users are Confidential; credentials and session state are never in the allow-list.
 USERS_EXPORT_SPEC = ExportSpec(
     module="users",
     label="Users",

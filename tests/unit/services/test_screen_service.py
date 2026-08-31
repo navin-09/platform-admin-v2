@@ -1,8 +1,4 @@
-"""Screen service unit tests — faked collaborators (see tests/unit/fakes.py).
-
-Note: the service resolves the super-admin role via ``role_repository`` — the
-fixture wires a FakeRoleRepository whose ``role`` is the super_admin row.
-"""
+"""Screen service unit tests — faked collaborators (see tests/unit/fakes.py)."""
 
 import uuid
 from unittest.mock import AsyncMock

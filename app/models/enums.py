@@ -7,7 +7,7 @@ class Status(StrEnum):
 
 
 class ExportStatus(StrEnum):
-    """Lifecycle of an export record (BRD: pending → ready; expired after 24h)."""
+    """Export lifecycle: pending → ready; expired after 24h."""
 
     PENDING = "pending"
     READY = "ready"

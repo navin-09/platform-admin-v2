@@ -149,11 +149,7 @@ async def stream_audit_logs(
     resource_type: str | None,
     actor_type: str | None,
 ) -> AsyncIterator[AuditLog]:
-    """Stream matching audit logs in the list view's order (created_at DESC, id DESC).
-
-    Keyset pagination keeps the stream stable and portable across Postgres and
-    the sqlite test database; the export never loads the full result set.
-    """
+    """Stream matching audit logs (created_at DESC, id DESC) via keyset pagination."""
     db = get_session()
     chunk_size = settings.export_stream_chunk_size
     last_created_at: datetime | None = None

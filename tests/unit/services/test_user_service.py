@@ -1,9 +1,4 @@
-"""Platform Admin (Users API) service unit tests — faked collaborators.
-
-See tests/unit/fakes.py. The ``fakes`` fixture wires FakeUserRepository +
-FakeRbacRepository + an audit recorder onto ``user_service``; tests steer the
-fakes and assert on state + audit calls.
-"""
+"""Platform Admin (Users API) service unit tests — faked collaborators."""
 
 import uuid
 from unittest.mock import AsyncMock

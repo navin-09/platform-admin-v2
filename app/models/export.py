@@ -27,8 +27,7 @@ class Export(SQLModel, table=True):
     reason: str = Field(max_length=EXPORT_REASON_MAX_LENGTH)
     file_format: str = Field(default="xlsx", max_length=EXPORT_FORMAT_MAX_LENGTH)
     classification: str = Field(max_length=EXPORT_CLASSIFICATION_MAX_LENGTH)
-    # The exact filters applied at creation, retained for the export's metadata
-    # sheet and audit evidence (BRD §6.6: export retains applied filters).
+    # The exact filters applied at creation, retained for metadata sheet and audit evidence.
     filters: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     status: str = Field(index=True, default=ExportStatus.PENDING.value)
     row_count: int | None = Field(default=None)

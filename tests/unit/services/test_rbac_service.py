@@ -1,8 +1,4 @@
-"""RBAC service unit tests — repository faked (see tests/unit/fakes.py).
-
-Covers both public methods (permissions_for_admin, roles_for_admin) and the
-pure _expand helper's edge cases.
-"""
+"""RBAC service unit tests — repository faked (see tests/unit/fakes.py)."""
 
 import uuid
 

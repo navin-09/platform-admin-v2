@@ -1,9 +1,4 @@
-"""Streaming xlsx writer (openpyxl write_only mode) used by the export engine.
-
-Writes a Metadata sheet first (BRD §6.6: exports retain filters and metadata and
-carry their classification), then the data sheet. Writes to a temp file and
-atomically replaces the target, so concurrent lazy regeneration is safe.
-"""
+"""Streaming xlsx writer (openpyxl write_only): metadata + data sheets, atomic replace."""
 
 import json
 import os

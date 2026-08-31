@@ -1,13 +1,4 @@
-"""Shared test doubles for service unit tests.
-
-Each fake mirrors ONE collaborator (a repository or helper service) and is
-configured through plain attributes: set what a method should return, then
-read the recorder lists to assert what was called. Unconfigured methods fall
-back to no-op defaults, so a test only touches what it cares about.
-
-Wiring happens per test file via a ``fake_*`` fixture that monkeypatches the
-fakes onto the service module under test (see ``tests/unit/services/``).
-"""
+"""Shared fake repositories for service unit tests (configure attributes, read recorders)."""
 
 import uuid
 from datetime import datetime

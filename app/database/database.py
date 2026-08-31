@@ -23,12 +23,7 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 @asynccontextmanager
 async def db_session() -> AsyncGenerator[None, None]:
-    """Standalone session context usable from requests AND background tasks.
-
-    Background generation has no HTTP request, so it cannot rely on ``get_db``;
-    it enters this context instead. Repositories are untouched: they keep reading
-    the ambient session via ``get_session()``.
-    """
+    """Standalone session context for requests AND background tasks (no HTTP request)."""
     async with async_session_factory() as session:
         token = current_session.set(session)
         try:

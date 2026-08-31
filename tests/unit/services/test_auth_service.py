@@ -1,11 +1,4 @@
-"""Auth service unit tests — collaborators faked (see tests/unit/fakes.py).
-
-Architecture: the ``auth`` fixture wires Fake* repositories + stubbed token/
-password helpers onto ``auth_service``. Tests configure only what they need
-(e.g. ``fakes.repo.admin = None`` for the unknown-admin path) and assert on
-state + recorder lists. Sections group one service function's success/failure
-cases.
-"""
+"""Auth service unit tests — collaborators faked (see tests/unit/fakes.py)."""
 
 import uuid
 from datetime import timedelta

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # Audit
     audit_retention_days: int = 365
 
-    # Exports (BRD §6.6: reason, allow-list, 24h single-user link, max 100k/file)
+    # Exports (reason, 24h single-user link, max 100k rows/file)
     export_dir: str = "exports"
     export_link_ttl_hours: int = 24
     export_max_rows: int = 100_000

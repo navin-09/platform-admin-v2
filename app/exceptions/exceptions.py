@@ -142,7 +142,7 @@ class ExportNotFoundError(AppError):
 
 
 class ExportExpiredError(AppError):
-    """Raised when the 24h single-user download link has expired (BRD §6.6)."""
+    """Raised when the 24h single-user download link has expired."""
 
     status_code = 410
     code = "E_410_EXPORT_EXPIRED"
@@ -150,7 +150,7 @@ class ExportExpiredError(AppError):
 
 
 class ExportTooLargeError(AppError):
-    """Raised when an export would exceed the 100,000-record per-file cap (BRD §6.6)."""
+    """Raised when an export would exceed the 100,000-record per-file cap."""
 
     status_code = 413
     code = "E_413_EXPORT_TOO_LARGE"

@@ -56,8 +56,7 @@ def create_access_token(
     username: str,
     roles: list[str],
 ) -> str:
-    """Create an access token carrying its sibling refresh token's
-    jti/exp and permissions plus identity claims."""
+    """Create an access token bound to its sibling refresh token session (rjti)."""
     refresh_payload = decode_token(refresh_token)
     extra_claims = {
         "rjti": refresh_payload["jti"],

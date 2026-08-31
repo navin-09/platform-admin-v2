@@ -1,9 +1,4 @@
-"""Export repository unit tests (mocked session, per repo convention).
-
-The database session is a MagicMock; every test asserts what SQL-path behaviour
-the repository performs (create/commit, keyset pagination, filter application).
-No real database is touched.
-"""
+"""Export repository unit tests (mocked session, per repo convention)."""
 
 import uuid
 from datetime import datetime

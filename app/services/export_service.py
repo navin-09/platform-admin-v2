@@ -1,11 +1,4 @@
-"""Export engine: create (uniform flow), background generate, status, download.
-
-BRD §6.6 / §17.7 / §19.2: every export needs a mandatory reason, carries only
-authorized fields, retains filters and metadata, is classified, is audited on
-generation and download, and is served through a 24-hour single-user link.
-Generation runs as an in-process task; if the process died before finishing,
-the download endpoint lazily regenerates the file (idempotent).
-"""
+"""Export engine: create, background generate, status, download (24h single-user links)."""
 
 import asyncio
 import json
@@ -86,7 +79,7 @@ async def create_export(*, admin_email: str, data: ExportCreate) -> Export:
 
 
 async def get_export_status(*, export_id: uuid.UUID, admin_email: str) -> Export:
-    """Status of one export, owner-checked (single-user links, BRD §6.6)."""
+    """Status of one export, owner-checked (single-user links)."""
     return await _owned_export(export_id, admin_email)
 
 
@@ -128,8 +121,7 @@ def _spawn_generation(export_id: uuid.UUID) -> None:
 
 
 async def _generate_task(export_id: uuid.UUID) -> None:
-    """Background generation with failure marking. If the process dies before
-    completion, the download endpoint regenerates lazily (idempotent)."""
+    """Background generation with failure marking; download regenerates lazily."""
     try:
         async with db_session():
             await _generate(export_id)
@@ -235,12 +227,7 @@ def _filename(spec: ExportSpec, export: Export) -> str:
 
 
 def _filters_for_module(data: ExportCreate) -> AuditExportFilters | UsersExportFilters:
-    """Resolve the per-module filter shape; reject a mismatched shape outright.
-
-    The union alone cannot see ``module`` (pydantic validates fields in
-    isolation), so a users-shaped filter on an audit export would otherwise
-    parse and silently export *everything*. Invariant ③: no silent degradation.
-    """
+    """Resolve the per-module filter shape; reject mismatches outright (no silent drops)."""
     if data.filters is None:
         if data.module == "audit":
             return AuditExportFilters()

@@ -1,8 +1,4 @@
-"""Audit service unit tests — repository faked (see tests/unit/fakes.py).
-
-The ambient-context cases (actor / request metadata resolved from ContextVars)
-are the ones the plain-call cases can't cover — keep them explicit.
-"""
+"""Audit service unit tests — repository faked (see tests/unit/fakes.py)."""
 
 from app.core.audit_context import (
     reset_current_actor,
@@ -42,7 +38,7 @@ async def test_record_success_redacts_sensitive_fields() -> None:
 
 
 async def test_record_failure_is_best_effort() -> None:
-    """A failing audit write must never break the caller (BRD-compatible dev phase)."""
+    """A failing audit write must never break the caller (best-effort)."""
     repo = FakeAuditRepository()
 
     async def _boom(**kwargs):

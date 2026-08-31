@@ -27,11 +27,7 @@ class RoleCreate(BaseModel):
 
 
 class RoleUpdate(BaseModel):
-    """Partial update (PATCH) — only provided fields are applied.
-
-    When ``permissions`` is provided it atomically replaces the role's full set
-    (an empty list revokes every permission); when absent, permissions are untouched.
-    """
+    """Partial update (PATCH) — only provided fields are applied."""
 
     name: str | None = Field(default=None, min_length=1, max_length=NAME_MAX_LENGTH)
     description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)

@@ -1,15 +1,4 @@
-"""Export service unit tests — repository and DB session fully mocked.
-
-Architecture (kept simple to extend):
-- ``FakeExportRepository`` stands in for the real repository in memory.
-  Configure only what a test needs; unconfigured methods are no-ops with
-  sensible defaults.
-- ``fake_repo`` fixture wires the fake + no-op ``db_session`` + spawn/audit
-  stubs, so tests never touch a database or the event-loop task machinery.
-- Naming convention: ``test_<unit>_success`` / ``test_<unit>_failure_<condition>``.
-
-Adding a test = set a field on the fake, call the service, assert. No patching.
-"""
+"""Export service unit tests — repository and DB session fully mocked (see tests/unit/fakes.py)."""
 
 import uuid
 from contextlib import asynccontextmanager

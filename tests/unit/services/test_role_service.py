@@ -1,8 +1,4 @@
-"""Role service unit tests — faked collaborators (see tests/unit/fakes.py).
-
-Pure helpers (_normalize_permissions, _expand_permissions) are tested directly;
-async paths run against FakeRoleRepository + FakeScreenRepository.
-"""
+"""Role service unit tests — faked collaborators (see tests/unit/fakes.py)."""
 
 import uuid
 from unittest.mock import AsyncMock
