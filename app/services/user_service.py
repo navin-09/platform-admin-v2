@@ -1,6 +1,5 @@
-"""Platform Admin CRUD rules — the /users API is mapped onto platform_admins."""
-
 import uuid
+from datetime import date
 
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.security import hash_password
@@ -56,8 +55,17 @@ async def list_users(
     limit: int = DEFAULT_PAGE_SIZE,
     search: str | None = None,
     status: Status | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> tuple[list[PlatformAdmin], int]:
-    return await user_repository.list_users(page=page, limit=limit, search=search, status=status)
+    return await user_repository.list_users(
+        page=page,
+        limit=limit,
+        search=search,
+        status=status,
+        from_date=from_date,
+        to_date=to_date,
+    )
 
 
 async def get_user(user_id: uuid.UUID) -> PlatformAdmin:
