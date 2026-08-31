@@ -1,4 +1,4 @@
-"""Screen business rules (CRUD, code auto-generation, protection, super_admin grant)."""
+"""Screen business rules (CRUD, code auto-generation, protection, super_admin permission)."""
 
 import uuid
 

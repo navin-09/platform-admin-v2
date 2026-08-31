@@ -1,9 +1,8 @@
 """Auth routes: login, token refresh, forgot password, and logout."""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.api.audit import record_audit
 from app.api.deps import bearer_scheme, get_current_admin
 from app.exceptions.exceptions import (
     AccountLockedError,
@@ -34,7 +33,7 @@ from app.schemas.auth import (
     VerifyOtpRequest,
 )
 from app.schemas.common import ApiResponse
-from app.services import auth_service
+from app.services import audit_service, auth_service
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -44,7 +43,6 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 )
 async def login(
     credentials: LoginRequest,
-    request: Request,
 ) -> ApiResponse[TokenResponse]:
     """Authenticate a platform admin and return access and refresh tokens."""
     payload = credentials.model_dump(mode="json", exclude_unset=True)
@@ -56,8 +54,7 @@ async def login(
             if isinstance(exc, AccountLockedError)
             else AuditAction.LOGIN_FAILURE
         )
-        await record_audit(
-            request=request,
+        await audit_service.record(
             actor=credentials.email,
             actor_type=ActorType.ADMIN.value,
             action=action,
@@ -70,8 +67,7 @@ async def login(
     response: ApiResponse[TokenResponse] = ApiResponse(
         code=CODE_LOGIN_OK, message=MSG_LOGIN_OK, data=token
     )
-    await record_audit(
-        request=request,
+    await audit_service.record(
         actor=credentials.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.LOGIN_SUCCESS,
@@ -88,14 +84,13 @@ async def login(
     response_model=ApiResponse[TokenResponse],
     summary="Exchange a refresh token for new tokens",
 )
-async def refresh(payload: RefreshRequest, request: Request) -> ApiResponse[TokenResponse]:
+async def refresh(payload: RefreshRequest) -> ApiResponse[TokenResponse]:
     """Exchange a valid refresh token for a new access and refresh token pair."""
     body = payload.model_dump(mode="json", exclude_unset=True)
     try:
         token = await auth_service.refresh(payload)
     except AppError as exc:
-        await record_audit(
-            request=request,
+        await audit_service.record(
             actor=None,
             action=AuditAction.REFRESH_FAILURE,
             resource_type=AuditResourceType.AUTH,
@@ -106,8 +101,7 @@ async def refresh(payload: RefreshRequest, request: Request) -> ApiResponse[Toke
     response: ApiResponse[TokenResponse] = ApiResponse(
         code=CODE_REFRESH_OK, message=MSG_REFRESH_OK, data=token
     )
-    await record_audit(
-        request=request,
+    await audit_service.record(
         actor=None,
         action=AuditAction.REFRESH_SUCCESS,
         resource_type=AuditResourceType.AUTH,
@@ -122,14 +116,13 @@ async def refresh(payload: RefreshRequest, request: Request) -> ApiResponse[Toke
     response_model=ApiResponse[None],
     summary="Request a password reset OTP",
 )
-async def generate_otp(payload: GenerateOtpRequest, request: Request) -> ApiResponse[None]:
+async def generate_otp(payload: GenerateOtpRequest) -> ApiResponse[None]:
     """Validate that the admin account exists and is active before an OTP is issued."""
     body = payload.model_dump(mode="json", exclude_unset=True)
     try:
         await auth_service.generate_otp(payload)
     except OtpThrottledError as exc:
-        await record_audit(
-            request=request,
+        await audit_service.record(
             actor=payload.email,
             actor_type=ActorType.ADMIN.value,
             action=AuditAction.OTP_THROTTLED,
@@ -140,8 +133,7 @@ async def generate_otp(payload: GenerateOtpRequest, request: Request) -> ApiResp
         )
         raise
     response: ApiResponse[None] = ApiResponse(code=CODE_OTP_SENT, message=MSG_OTP_SENT, data=None)
-    await record_audit(
-        request=request,
+    await audit_service.record(
         actor=payload.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.OTP_REQUESTED,
@@ -157,14 +149,13 @@ async def generate_otp(payload: GenerateOtpRequest, request: Request) -> ApiResp
     response_model=ApiResponse[None],
     summary="Verify the password reset OTP",
 )
-async def verify_otp(payload: VerifyOtpRequest, request: Request) -> ApiResponse[None]:
+async def verify_otp(payload: VerifyOtpRequest) -> ApiResponse[None]:
     """Verify the OTP sent for the given email."""
     body = payload.model_dump(mode="json", exclude_unset=True)
     try:
         await auth_service.verify_otp(payload)
     except AppError as exc:
-        await record_audit(
-            request=request,
+        await audit_service.record(
             actor=payload.email,
             actor_type=ActorType.ADMIN.value,
             action=AuditAction.OTP_VERIFY_FAILURE,
@@ -177,8 +168,7 @@ async def verify_otp(payload: VerifyOtpRequest, request: Request) -> ApiResponse
     response: ApiResponse[None] = ApiResponse(
         code=CODE_OTP_VERIFIED, message=MSG_OTP_VERIFIED, data=None
     )
-    await record_audit(
-        request=request,
+    await audit_service.record(
         actor=payload.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.OTP_VERIFY_SUCCESS,
@@ -195,14 +185,13 @@ async def verify_otp(payload: VerifyOtpRequest, request: Request) -> ApiResponse
     response_model=ApiResponse[None],
     summary="Set a new password",
 )
-async def update_password(payload: UpdatePasswordRequest, request: Request) -> ApiResponse[None]:
+async def update_password(payload: UpdatePasswordRequest) -> ApiResponse[None]:
     """Set a new password for the admin identified by email."""
     body = payload.model_dump(mode="json", exclude_unset=True)
     try:
         await auth_service.update_password(payload)
     except AppError as exc:
-        await record_audit(
-            request=request,
+        await audit_service.record(
             actor=payload.email,
             actor_type=ActorType.ADMIN.value,
             action=AuditAction.PASSWORD_RESET_FAILURE,
@@ -215,8 +204,7 @@ async def update_password(payload: UpdatePasswordRequest, request: Request) -> A
     response: ApiResponse[None] = ApiResponse(
         code=CODE_PASSWORD_UPDATED, message=MSG_PASSWORD_UPDATED, data=None
     )
-    await record_audit(
-        request=request,
+    await audit_service.record(
         actor=payload.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.PASSWORD_RESET_SUCCESS,
@@ -234,7 +222,6 @@ async def update_password(payload: UpdatePasswordRequest, request: Request) -> A
     summary="Log out the current admin",
 )
 async def logout(
-    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     admin: PlatformAdmin = Depends(get_current_admin),
 ) -> ApiResponse[None]:
@@ -243,8 +230,7 @@ async def logout(
         raise AuthenticationError()
     await auth_service.logout(access_token=credentials.credentials)
     response: ApiResponse[None] = ApiResponse(code=CODE_LOGOUT_OK, message=MSG_LOGOUT_OK, data=None)
-    await record_audit(
-        request=request,
+    await audit_service.record(
         actor=admin.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.LOGOUT,

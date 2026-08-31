@@ -6,6 +6,7 @@ from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.core.audit_context import reset_request_metadata, set_request_metadata
 from app.core.constants import HEADER_PROCESS_TIME, HEADER_REQUEST_ID
 from app.core.logging import request_id_var
 
@@ -20,6 +21,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             span.set_attribute("request_id", request_id)
 
         token = request_id_var.set(request_id)
+        metadata_token = set_request_metadata(
+            url=request.url.path,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            request_id=request_id,
+        )
         try:
             start = time.perf_counter()
             response = await call_next(request)
@@ -29,3 +36,4 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             request_id_var.reset(token)
+            reset_request_metadata(metadata_token)

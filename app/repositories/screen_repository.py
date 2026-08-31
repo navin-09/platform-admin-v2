@@ -14,7 +14,7 @@ from app.models.screen import Screen
 
 
 async def create_screen(screen: Screen, super_admin_role_id: uuid.UUID | None = None) -> Screen:
-    """Create a screen and, atomically, its bootstrap super_admin grant."""
+    """Create a screen and, atomically, its bootstrap super_admin permission."""
     db = get_session()
     db.add(screen)
     if super_admin_role_id is not None:
@@ -66,7 +66,7 @@ async def get_screen_by_code(code: str) -> Screen | None:
 
 
 async def active_screen_codes() -> set[str]:
-    """Return the codes of every active screen (for grant validation)."""
+    """Return the codes of every active screen (for permission validation)."""
     db = get_session()
     result = await db.execute(select(col(Screen.code)).where(col(Screen.status) == Status.ACTIVE))
     return set(result.scalars().all())

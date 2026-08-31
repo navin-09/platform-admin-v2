@@ -13,7 +13,7 @@ from pydantic import AfterValidator, Field
 from pydantic import EmailStr as PydanticEmailStr
 
 from app.utils.limits import EMAIL_MAX_LENGTH, NAME_MAX_LENGTH, SCREEN_CODE_MAX_LENGTH
-from app.utils.validate import validate_slug_format
+from app.utils.validate import validate_permission_format, validate_slug_format
 
 PASSWORD_PATTERN = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,13}$")
 PASSWORD_MIN_LENGTH = 8
@@ -57,4 +57,10 @@ ScreenCodeStr = Annotated[
     str,
     Field(min_length=1, max_length=SCREEN_CODE_MAX_LENGTH, examples=["S5"]),
     AfterValidator(partial(validate_slug_format, field_label="Code")),
+]
+
+PermissionStr = Annotated[
+    str,
+    Field(min_length=3, max_length=SCREEN_CODE_MAX_LENGTH + 2, examples=["S1.W"]),
+    AfterValidator(partial(validate_permission_format, field_label="Permission")),
 ]

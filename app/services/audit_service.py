@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from app.core.audit_context import get_current_actor
+from app.core.audit_context import get_current_actor, get_request_metadata
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.tracing import traced
 from app.models.audit_log import AuditLog
@@ -35,6 +35,16 @@ async def record(
         if ambient is not None:
             actor = ambient.actor
             actor_type = ambient.actor_type
+    metadata = get_request_metadata()
+    if metadata is not None:
+        if url is None:
+            url = metadata.url
+        if ip_address is None:
+            ip_address = metadata.ip_address
+        if user_agent is None:
+            user_agent = metadata.user_agent
+        if request_id is None:
+            request_id = metadata.request_id
     try:
         await audit_repository.create_audit_log(
             actor=actor,

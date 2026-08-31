@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import Status
 from app.schemas.fields import EmailStr, NameStr, PasswordStr
@@ -42,10 +42,12 @@ class UserReplace(BaseModel):
 
 
 class UserRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: uuid.UUID
-    name: str
+    # The Users API now manages Platform Admins; the wire field stays ``name`` but
+    # it reads from the admin's ``username`` (Display Name) column.
+    name: str = Field(validation_alias="username")
     email: EmailStr
     status: Status
     created_at: datetime

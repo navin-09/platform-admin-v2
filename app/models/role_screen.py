@@ -1,4 +1,4 @@
-"""Role → Screen grant table — read/write booleans per screen."""
+"""Role → Screen permission table — read/write booleans per screen."""
 
 import uuid
 from datetime import datetime

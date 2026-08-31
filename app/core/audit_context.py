@@ -35,6 +35,45 @@ def get_current_actor() -> AuditActor | None:
     return current_actor.get()
 
 
+@dataclass(frozen=True)
+class RequestMetadata:
+    """The HTTP facts (URL path, client IP, user-agent, request id) behind an action."""
+
+    url: str | None
+    ip_address: str | None
+    user_agent: str | None
+    request_id: str | None
+
+
+request_metadata_var: ContextVar[RequestMetadata | None] = ContextVar(
+    "request_metadata", default=None
+)
+
+
+def set_request_metadata(
+    url: str | None,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> Token[RequestMetadata | None]:
+    return request_metadata_var.set(
+        RequestMetadata(
+            url=url,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request_id=request_id,
+        )
+    )
+
+
+def reset_request_metadata(token: Token[RequestMetadata | None]) -> None:
+    request_metadata_var.reset(token)
+
+
+def get_request_metadata() -> RequestMetadata | None:
+    return request_metadata_var.get()
+
+
 @asynccontextmanager
 async def system_actor(name: str) -> AsyncIterator[None]:
     """Run a block with the actor set to an automation identity (non-HTTP entry points)."""

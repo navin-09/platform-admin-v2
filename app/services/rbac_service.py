@@ -8,13 +8,13 @@ from app.repositories import rbac_repository
 
 @traced("rbac_service.permissions_for_admin")
 async def permissions_for_admin(admin_id: uuid.UUID) -> set[str]:
-    grants = await rbac_repository.screen_grants_for_admin(admin_id)
-    return _expand(grants)
+    rows = await rbac_repository.screen_permissions_for_admin(admin_id)
+    return _expand(rows)
 
 
-def _expand(grants: set[tuple[str, bool, bool]]) -> set[str]:
+def _expand(rows: set[tuple[str, bool, bool]]) -> set[str]:
     permissions: set[str] = set()
-    for code, read, write in grants:
+    for code, read, write in rows:
         if read or write:
             permissions.add(f"{code}.R")
         if write:

@@ -26,7 +26,6 @@ class AuditAction(StrEnum):
     ROLE_CREATE = "role.create"
     ROLE_UPDATE = "role.update"
     ROLE_DELETE = "role.delete"
-    ROLE_GRANTS_UPDATE = "role.grants.update"
     SCREEN_CREATE = "screen.create"
     SCREEN_UPDATE = "screen.update"
     SCREEN_DELETE = "screen.delete"
@@ -96,7 +95,6 @@ class AuditActionFilter(StrEnum):
     ROLE_CREATE = AuditAction.ROLE_CREATE.value
     ROLE_UPDATE = AuditAction.ROLE_UPDATE.value
     ROLE_DELETE = AuditAction.ROLE_DELETE.value
-    ROLE_GRANTS_UPDATE = AuditAction.ROLE_GRANTS_UPDATE.value
     SCREEN_CREATE = AuditAction.SCREEN_CREATE.value
     SCREEN_UPDATE = AuditAction.SCREEN_UPDATE.value
     SCREEN_DELETE = AuditAction.SCREEN_DELETE.value

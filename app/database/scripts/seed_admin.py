@@ -1,4 +1,4 @@
-"""Create or reset Platform Admins (dev: admin1..admin5@example.com, all super_admin)."""
+"""Create or reset Platform Admins (dev team: 5 default + 5 named accounts, all super_admin)."""
 
 import argparse
 import asyncio
@@ -14,7 +14,20 @@ from app.models.password_history import PasswordHistory
 from app.models.platform_admin import PlatformAdmin
 from app.models.platform_admin_role import PlatformAdminRole
 
-DEFAULT_DEV_EMAILS = [f"admin{i}@example.com" for i in range(1, 6)]
+# (username, email) pairs for the dev team: the first five are generic,
+# the rest are named team members.
+DEFAULT_DEV_ADMINS: list[tuple[str, str]] = [
+    ("admin1", "admin1@example.com"),
+    ("admin2", "admin2@example.com"),
+    ("admin3", "admin3@example.com"),
+    ("admin4", "admin4@example.com"),
+    ("admin5", "admin5@example.com"),
+    ("shiva", "shiva@gmail.com"),
+    ("kishore", "kishore@gmail.com"),
+    ("shaktish", "shaktish@gmail.com"),
+    ("satish", "satish@gmail.com"),
+    ("naveen", "naveen@gmail.com"),
+]
 DEFAULT_DEV_PASSWORD = os.getenv("SEED_ADMIN_PASSWORD", "Admin@1234")  # noqa: S105
 
 
@@ -48,8 +61,8 @@ async def reset() -> None:
 
 
 async def seed_dev_team() -> None:
-    for i, email in enumerate(DEFAULT_DEV_EMAILS, start=1):
-        await seed(username=f"admin{i}", email=email, password=DEFAULT_DEV_PASSWORD)
+    for username, email in DEFAULT_DEV_ADMINS:
+        await seed(username=username, email=email, password=DEFAULT_DEV_PASSWORD)
 
 
 async def _run(args: argparse.Namespace) -> None:
@@ -72,7 +85,7 @@ def main() -> None:
     parser.add_argument(
         "--email",
         default=None,
-        help="Seed a single admin (production provisioning); default seeds the 5 dev admins",
+        help="Seed a single admin (production provisioning); default seeds the 10 dev admins",
     )
     parser.add_argument("--username", default="admin")
     parser.add_argument("--password", default=DEFAULT_DEV_PASSWORD)
