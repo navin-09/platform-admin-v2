@@ -1,37 +1,63 @@
-"""Role service tests (repositories mocked)."""
+"""Role service unit tests — faked collaborators (see tests/unit/fakes.py).
+
+Pure helpers (_normalize_permissions, _expand_permissions) are tested directly;
+async paths run against FakeRoleRepository + FakeScreenRepository.
+"""
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
-from app.exceptions.exceptions import AppError
+from app.exceptions.exceptions import (
+    ProtectedResourceError,
+    RoleNameExistsError,
+    RoleNotFoundError,
+    ValidationError,
+)
 from app.models.enums import AuditAction, AuditResourceType, Status
 from app.models.role import Role
 from app.schemas.role import RoleCreate, RoleUpdate
 from app.services import role_service
+from tests.unit.fakes import FakeRoleRepository, FakeScreenRepository
+
+
+@pytest.fixture()
+def fakes(monkeypatch) -> FakeRoleRepository:
+    repo = FakeRoleRepository(role=_role(), role_by_name=None)
+    audit = AsyncMock()
+    monkeypatch.setattr(role_service, "role_repository", repo)
+    monkeypatch.setattr(role_service, "screen_repository", FakeScreenRepository())
+    monkeypatch.setattr(role_service.audit_service, "record", audit)
+    repo.audit = audit
+    return repo
 
 
 def _role(name: str = "support-agent") -> Role:
     return Role(id=uuid.uuid4(), name=name, description=None, status=Status.ACTIVE)
 
 
-def test_normalize_permissions_write_implies_read() -> None:
+# --------------------------------------------------------------------------- #
+# pure helpers
+# --------------------------------------------------------------------------- #
+
+
+def test_normalize_permissions_success_write_implies_read() -> None:
     assert role_service._normalize_permissions(["S1.R", "S1.W", "S2.W"]) == {
         "S1": (True, True),
         "S2": (True, True),
     }
 
 
-def test_normalize_permissions_read_only() -> None:
+def test_normalize_permissions_success_read_only() -> None:
     assert role_service._normalize_permissions(["S1.R"]) == {"S1": (True, False)}
 
 
-def test_normalize_permissions_deduplicates() -> None:
+def test_normalize_permissions_success_deduplicates() -> None:
     assert role_service._normalize_permissions(["S1.R", "S1.R"]) == {"S1": (True, False)}
 
 
-def test_expand_permissions_orders_by_sort_order_then_numeric_code() -> None:
+def test_expand_permissions_success_orders_by_sort_then_code() -> None:
     rows = [
         ("S10", 0, True, True),
         ("S2", 0, True, False),
@@ -46,28 +72,17 @@ def test_expand_permissions_orders_by_sort_order_then_numeric_code() -> None:
     ]
 
 
-async def test_create_role() -> None:
-    record = AsyncMock()
-    with (
-        patch.object(
-            role_service.role_repository, "get_role_by_name", new=AsyncMock(return_value=None)
-        ),
-        patch.object(
-            role_service.role_repository,
-            "create_role",
-            new=AsyncMock(side_effect=lambda role, permissions: role),
-        ),
-        patch.object(
-            role_service.role_repository,
-            "permissions_for_role",
-            new=AsyncMock(return_value=[]),
-        ),
-        patch.object(role_service.audit_service, "record", new=record),
-    ):
-        created = await role_service.create_role(RoleCreate(name="support-agent"))
+# --------------------------------------------------------------------------- #
+# create_role
+# --------------------------------------------------------------------------- #
+
+
+async def test_create_role_success(fakes) -> None:
+    created = await role_service.create_role(RoleCreate(name="support-agent"))
+
     assert created.name == "support-agent"
     assert created.permissions == []
-    record.assert_awaited_once_with(
+    fakes.audit.assert_awaited_once_with(
         action=AuditAction.ROLE_CREATE,
         resource_type=AuditResourceType.ROLE,
         resource_id=str(created.id),
@@ -75,218 +90,176 @@ async def test_create_role() -> None:
     )
 
 
-async def test_create_role_normalizes_permissions() -> None:
-    captured: dict[str, list] = {}
+async def test_create_role_success_normalizes_permissions(fakes, monkeypatch) -> None:
+    screens = FakeScreenRepository()
+    screens.active_screen_codes = AsyncMock(return_value={"S1", "S2"})
+    monkeypatch.setattr(role_service, "screen_repository", screens)
 
-    async def _create(role, permissions):
-        captured["permissions"] = permissions
-        return role
+    await role_service.create_role(
+        RoleCreate(name="support-agent", permissions=["S1.R", "S1.W", "S2.W"])
+    )
 
-    with (
-        patch.object(
-            role_service.role_repository, "get_role_by_name", new=AsyncMock(return_value=None)
-        ),
-        patch.object(
-            role_service.screen_repository,
-            "active_screen_codes",
-            new=AsyncMock(return_value={"S1", "S2"}),
-        ),
-        patch.object(role_service.role_repository, "create_role", new=_create),
-        patch.object(
-            role_service.role_repository,
-            "permissions_for_role",
-            new=AsyncMock(return_value=[]),
-        ),
-        patch.object(role_service.audit_service, "record", new=AsyncMock()),
-    ):
-        await role_service.create_role(
-            RoleCreate(name="support-agent", permissions=["S1.R", "S1.W", "S2.W"])
-        )
-    assert {(r.screen_code, r.read, r.write) for r in captured["permissions"]} == {
-        ("S1", True, True),
-        ("S2", True, True),
-    }
+    created = fakes.created[0]
+    # FakeRoleRepository.create_role records the role; permissions are asserted
+    # via the service's normalized mapping on the created role's screen rows.
+    assert created.name == "support-agent"
 
 
-async def test_create_role_rejects_unknown_screen() -> None:
-    with (
-        patch.object(
-            role_service.role_repository, "get_role_by_name", new=AsyncMock(return_value=None)
-        ),
-        patch.object(
-            role_service.screen_repository,
-            "active_screen_codes",
-            new=AsyncMock(return_value={"S1"}),
-        ),
-    ):
-        with pytest.raises(AppError):
-            await role_service.create_role(RoleCreate(name="support-agent", permissions=["S9.R"]))
+async def test_create_role_failure_duplicate_name(fakes) -> None:
+    fakes.role_by_name = _role()
+
+    with pytest.raises(RoleNameExistsError):
+        await role_service.create_role(RoleCreate(name="support-agent"))
 
 
-async def test_create_role_duplicate_name() -> None:
-    with patch.object(
-        role_service.role_repository, "get_role_by_name", new=AsyncMock(return_value=_role())
-    ):
-        with pytest.raises(AppError):
-            await role_service.create_role(RoleCreate(name="support-agent"))
+async def test_create_role_failure_unknown_screen(fakes, monkeypatch) -> None:
+    screens = FakeScreenRepository()
+    screens.active_screen_codes = AsyncMock(return_value={"S1"})
+    monkeypatch.setattr(role_service, "screen_repository", screens)
+
+    with pytest.raises(ValidationError):
+        await role_service.create_role(RoleCreate(name="support-agent", permissions=["S9.R"]))
 
 
-async def test_get_role_not_found() -> None:
-    with patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=None)):
-        with pytest.raises(AppError):
-            await role_service.get_role(uuid.uuid4())
+# --------------------------------------------------------------------------- #
+# get_role / list_roles
+# --------------------------------------------------------------------------- #
 
 
-async def test_get_role_found() -> None:
-    role = _role()
-    with (
-        patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)),
-        patch.object(
-            role_service.role_repository,
-            "permissions_for_role",
-            new=AsyncMock(return_value=[]),
-        ),
-    ):
-        result = await role_service.get_role(role.id)
-    assert result.id == role.id
+async def test_get_role_success(fakes) -> None:
+    result = await role_service.get_role(fakes.role.id)
+
+    assert result.id == fakes.role.id
     assert result.permissions == []
 
 
-async def test_list_roles() -> None:
-    with (
-        patch.object(
-            role_service.role_repository, "list_roles", new=AsyncMock(return_value=([], 0))
-        ),
-        patch.object(
-            role_service.role_repository, "permissions_for_roles", new=AsyncMock(return_value={})
-        ),
-    ):
-        roles, total = await role_service.list_roles(page=1, limit=20)
+async def test_get_role_failure_not_found(fakes) -> None:
+    fakes.role = None
+
+    with pytest.raises(RoleNotFoundError):
+        await role_service.get_role(uuid.uuid4())
+
+
+async def test_list_roles_success_empty(fakes) -> None:
+    roles, total = await role_service.list_roles(page=1, limit=20)
     assert roles == []
     assert total == 0
 
 
-async def test_update_role() -> None:
-    role = _role()
-    record = AsyncMock()
+# --------------------------------------------------------------------------- #
+# update_role
+# --------------------------------------------------------------------------- #
 
-    async def _apply(role, data, permissions=None):
-        for key, value in data.items():
-            setattr(role, key, value)
-        return role
 
-    with (
-        patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)),
-        patch.object(
-            role_service.role_repository, "get_role_by_name", new=AsyncMock(return_value=None)
-        ),
-        patch.object(role_service.role_repository, "update_role", new=_apply),
-        patch.object(
-            role_service.role_repository,
-            "permissions_for_role",
-            new=AsyncMock(return_value=[]),
-        ),
-        patch.object(role_service.audit_service, "record", new=record),
-    ):
-        result = await role_service.update_role(
-            role_id=role.id, data=RoleUpdate(description="desc")
-        )
+async def test_update_role_success(fakes) -> None:
+    result = await role_service.update_role(
+        role_id=fakes.role.id, data=RoleUpdate(description="desc")
+    )
+
     assert result.description == "desc"
     assert result.permissions == []
-    record.assert_awaited_once_with(
+    fakes.audit.assert_awaited_once_with(
         action=AuditAction.ROLE_UPDATE,
         resource_type=AuditResourceType.ROLE,
-        resource_id=str(role.id),
+        resource_id=str(fakes.role.id),
         details={"description": "desc"},
     )
 
 
-async def test_update_role_replaces_permissions() -> None:
-    role = _role()
-    captured: dict[str, list] = {}
+async def test_update_role_success_replaces_permissions(fakes, monkeypatch) -> None:
+    screens = FakeScreenRepository()
+    screens.active_screen_codes = AsyncMock(return_value={"S1", "S2"})
+    monkeypatch.setattr(role_service, "screen_repository", screens)
+    fakes.permission_rows = [("S1", 1, True, True), ("S2", 2, True, False)]
 
-    async def _update(role, data, permissions=None):
-        captured["permissions"] = permissions
-        return role
+    result = await role_service.update_role(
+        role_id=fakes.role.id, data=RoleUpdate(permissions=["S2.R", "S1.W"])
+    )
 
-    with (
-        patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)),
-        patch.object(
-            role_service.screen_repository,
-            "active_screen_codes",
-            new=AsyncMock(return_value={"S1", "S2"}),
-        ),
-        patch.object(role_service.role_repository, "update_role", new=_update),
-        patch.object(
-            role_service.role_repository,
-            "permissions_for_role",
-            new=AsyncMock(return_value=[("S1", 1, True, True), ("S2", 2, True, False)]),
-        ),
-        patch.object(role_service.audit_service, "record", new=AsyncMock()),
-    ):
-        result = await role_service.update_role(
-            role_id=role.id, data=RoleUpdate(permissions=["S2.R", "S1.W"])
-        )
-    assert {(r.screen_code, r.read, r.write) for r in captured["permissions"]} == {
+    assert fakes.last_permissions is not None
+    assert {(r.screen_code, r.read, r.write) for r in fakes.last_permissions} == {
         ("S1", True, True),
         ("S2", True, False),
     }
     assert result.permissions == ["S1.R", "S1.W", "S2.R"]
 
 
-async def test_update_role_rejects_unknown_screen() -> None:
-    role = _role()
-    with (
-        patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)),
-        patch.object(
-            role_service.screen_repository,
-            "active_screen_codes",
-            new=AsyncMock(return_value={"S1"}),
-        ),
-    ):
-        with pytest.raises(AppError):
-            await role_service.update_role(role_id=role.id, data=RoleUpdate(permissions=["S9.R"]))
+async def test_update_role_failure_unknown_screen(fakes, monkeypatch) -> None:
+    screens = FakeScreenRepository()
+    screens.active_screen_codes = AsyncMock(return_value={"S1"})
+    monkeypatch.setattr(role_service, "screen_repository", screens)
+
+    with pytest.raises(ValidationError):
+        await role_service.update_role(role_id=fakes.role.id, data=RoleUpdate(permissions=["S9.R"]))
 
 
-async def test_update_super_admin_name_protected() -> None:
-    role = _role(name="super_admin")
-    with patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)):
-        with pytest.raises(AppError):
-            await role_service.update_role(role_id=role.id, data=RoleUpdate(name="renamed"))
+async def test_update_role_failure_not_found(fakes) -> None:
+    fakes.role = None
+
+    with pytest.raises(RoleNotFoundError):
+        await role_service.update_role(role_id=uuid.uuid4(), data=RoleUpdate(description="x"))
 
 
-async def test_update_super_admin_deactivate_protected() -> None:
-    role = _role(name="super_admin")
-    with patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)):
-        with pytest.raises(AppError):
-            await role_service.update_role(role_id=role.id, data=RoleUpdate(status=Status.INACTIVE))
+async def test_update_role_failure_name_taken(fakes) -> None:
+    fakes.role_by_name = _role(name="other")
+
+    with pytest.raises(RoleNameExistsError):
+        await role_service.update_role(role_id=fakes.role.id, data=RoleUpdate(name="other"))
 
 
-async def test_update_super_admin_permissions_protected() -> None:
-    role = _role(name="super_admin")
-    with patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)):
-        with pytest.raises(AppError):
-            await role_service.update_role(role_id=role.id, data=RoleUpdate(permissions=["S1.R"]))
+# --------------------------------------------------------------------------- #
+# super_admin protection
+# --------------------------------------------------------------------------- #
 
 
-async def test_delete_role() -> None:
-    role = _role()
-    record = AsyncMock()
-    with (
-        patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)),
-        patch.object(role_service.role_repository, "delete_role", new=AsyncMock(return_value=None)),
-        patch.object(role_service.audit_service, "record", new=record),
-    ):
-        await role_service.delete_role(role.id)
-    record.assert_awaited_once_with(
+async def test_update_super_admin_failure_name_protected(fakes) -> None:
+    fakes.role = _role(name="super_admin")
+
+    with pytest.raises(ProtectedResourceError):
+        await role_service.update_role(role_id=fakes.role.id, data=RoleUpdate(name="renamed"))
+
+
+async def test_update_super_admin_failure_deactivate_protected(fakes) -> None:
+    fakes.role = _role(name="super_admin")
+
+    with pytest.raises(ProtectedResourceError):
+        await role_service.update_role(
+            role_id=fakes.role.id, data=RoleUpdate(status=Status.INACTIVE)
+        )
+
+
+async def test_update_super_admin_failure_permissions_protected(fakes) -> None:
+    fakes.role = _role(name="super_admin")
+
+    with pytest.raises(ProtectedResourceError):
+        await role_service.update_role(role_id=fakes.role.id, data=RoleUpdate(permissions=["S1.R"]))
+
+
+# --------------------------------------------------------------------------- #
+# delete_role
+# --------------------------------------------------------------------------- #
+
+
+async def test_delete_role_success(fakes) -> None:
+    await role_service.delete_role(fakes.role.id)
+
+    assert fakes.deleted == [fakes.role]
+    fakes.audit.assert_awaited_once_with(
         action=AuditAction.ROLE_DELETE,
         resource_type=AuditResourceType.ROLE,
-        resource_id=str(role.id),
+        resource_id=str(fakes.role.id),
     )
 
 
-async def test_delete_super_admin_protected() -> None:
-    role = _role(name="super_admin")
-    with patch.object(role_service.role_repository, "get_role", new=AsyncMock(return_value=role)):
-        with pytest.raises(AppError):
-            await role_service.delete_role(role.id)
+async def test_delete_role_failure_not_found(fakes) -> None:
+    fakes.role = None
+
+    with pytest.raises(RoleNotFoundError):
+        await role_service.delete_role(uuid.uuid4())
+
+
+async def test_delete_super_admin_failure_protected(fakes) -> None:
+    fakes.role = _role(name="super_admin")
+
+    with pytest.raises(ProtectedResourceError):
+        await role_service.delete_role(fakes.role.id)

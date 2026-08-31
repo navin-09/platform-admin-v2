@@ -161,10 +161,11 @@ platform-admin/
 │   └── adr/                    # architecture decision records
 ├── tests/
 │   ├── conftest.py             # env setup (no DB connection)
-│   ├── unit/
-│   │   ├── services/           # pure unit tests (repositories mocked)
-│   │   └── repositories/       # pure unit tests (mocked AsyncSession)
-│   └── integration/            # real-DB tests (export lifecycle end-to-end)
+│   └── unit/
+│       ├── fakes.py            # shared fake repositories for service tests
+│       ├── services/           # pure unit tests (fakes, repositories mocked)
+│       ├── schemas/            # pure DTO validation tests
+│       └── repositories/       # pure unit tests (mocked AsyncSession)
 ├── CONTEXT.md                  # domain glossary
 ├── README.md                   # this file
 └── pyproject.toml              # project + tooling config

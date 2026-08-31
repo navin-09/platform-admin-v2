@@ -2,9 +2,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.models.enums import (
     AuditActionFilter,
@@ -27,7 +27,14 @@ MSG_DOWNLOADED = "Export downloaded successfully"
 
 
 class AuditExportFilters(BaseModel):
-    """Mirror of the audit-logs list endpoint filters; retained for the export."""
+    """Mirror of the audit-logs list endpoint filters; retained for the export.
+
+    ``extra="forbid"``: a filters payload must match exactly one module's shape.
+    Silently ignoring unknown fields would drop filters (e.g. a users payload
+    parsed as audit filters) — invariant ③: no guessing, no silent degradation.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     actor: str | None = Field(default=None, max_length=ACTOR_FILTER_MAX_LENGTH)
     action: AuditActionFilter = AuditActionFilter.ALL
@@ -38,15 +45,25 @@ class AuditExportFilters(BaseModel):
 class UsersExportFilters(BaseModel):
     """Mirror of the users list endpoint filters; retained for the export."""
 
+    model_config = ConfigDict(extra="forbid")
+
     search: str | None = Field(default=None, max_length=SEARCH_MAX_LENGTH)
     status: StatusFilter = StatusFilter.ALL
 
 
 class ExportCreate(BaseModel):
     module: Literal["audit", "users"]
-    reason: str = Field(min_length=1, max_length=EXPORT_REASON_MAX_LENGTH)
+    # BRD §6.6: Export Reason is mandatory. StringConstraints strips whitespace
+    # BEFORE the length check, so "   " fails min_length (Field-level
+    # str_strip_whitespace is silently ignored by pydantic 2.13).
+    reason: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=EXPORT_REASON_MAX_LENGTH),
+    ]
     format: Literal["xlsx"] = "xlsx"
-    filters: AuditExportFilters | UsersExportFilters = Field(default_factory=AuditExportFilters)
+    # Omitted filters = export everything for the module; the service resolves
+    # the per-module default and rejects a shape that doesn't match ``module``.
+    filters: AuditExportFilters | UsersExportFilters | None = None
 
 
 class ExportRead(BaseModel):

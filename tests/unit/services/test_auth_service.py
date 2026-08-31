@@ -1,8 +1,16 @@
-"""Auth service tests (repositories mocked)."""
+"""Auth service unit tests — collaborators faked (see tests/unit/fakes.py).
+
+Architecture: the ``auth`` fixture wires Fake* repositories + stubbed token/
+password helpers onto ``auth_service``. Tests configure only what they need
+(e.g. ``fakes.repo.admin = None`` for the unknown-admin path) and assert on
+state + recorder lists. Sections group one service function's success/failure
+cases.
+"""
 
 import uuid
 from datetime import timedelta
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from jose import JWTError
@@ -20,7 +28,6 @@ from app.exceptions.exceptions import (
 from app.models.enums import Status
 from app.models.password_history import PasswordHistory
 from app.models.password_reset_otp import PasswordResetOtp
-from app.models.platform_admin import PlatformAdmin
 from app.schemas.auth import (
     GenerateOtpRequest,
     LoginRequest,
@@ -30,756 +37,481 @@ from app.schemas.auth import (
 )
 from app.services import auth_service
 from app.utils.time import utcnow
+from tests.unit.fakes import (
+    FakeAuthRepository,
+    FakeOtpRepository,
+    FakePasswordHistoryRepository,
+    FakeRbacService,
+    active_admin,
+)
 
 
-def _admin(**overrides: object) -> PlatformAdmin:
-    fields: dict[str, object] = {
-        "id": uuid.uuid4(),
-        "username": "admin",
-        "email": "admin@example.com",
-        "hashed_password": "hash",
-        "status": Status.ACTIVE,
-    }
-    fields.update(overrides)
-    # mypy can't narrow a dict[str, object] into each field's type; the overrides
-    # are valid values for their keyed field, so the ignore is deliberate.
-    return PlatformAdmin(**fields)  # type: ignore[arg-type]
+@pytest.fixture()
+def fakes(monkeypatch) -> SimpleNamespace:
+    """Wire fakes + stubs onto the service; tests mutate ``fakes`` to steer."""
+    fakes = SimpleNamespace(
+        repo=FakeAuthRepository(admin=active_admin()),
+        otp=FakeOtpRepository(),
+        history=FakePasswordHistoryRepository(),
+        rbac=FakeRbacService(permissions={"S1.R", "S2.R"}, roles={"super_admin"}),
+        password_ok=True,  # verify_password result
+    )
+    monkeypatch.setattr(auth_service, "auth_repository", fakes.repo)
+    monkeypatch.setattr(auth_service, "otp_repository", fakes.otp)
+    monkeypatch.setattr(auth_service, "password_history_repository", fakes.history)
+    monkeypatch.setattr(auth_service, "rbac_service", fakes.rbac)
+    monkeypatch.setattr(auth_service, "verify_password", lambda *_a, **_k: fakes.password_ok)
+    monkeypatch.setattr(auth_service, "hash_password", lambda _plain: "hashed")
+    monkeypatch.setattr(auth_service, "create_access_token", lambda *a, **k: "access")
+    monkeypatch.setattr(auth_service, "create_refresh_token", lambda *a, **k: "refresh")
+    monkeypatch.setattr(
+        auth_service,
+        "decode_token",
+        lambda *a, **k: {
+            "type": "access",
+            "user_id": str(fakes.repo.admin.id),
+            "jti": "r1",
+        },
+    )
+    return fakes
 
 
-async def test_login_success() -> None:
-    admin = _admin()
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service, "verify_password", return_value=True),
-        patch.object(
-            auth_service.rbac_service,
-            "permissions_for_admin",
-            new=AsyncMock(return_value={"S1.R", "S1.W", "S2.R"}),
-        ),
-        patch.object(
-            auth_service.rbac_service,
-            "roles_for_admin",
-            new=AsyncMock(return_value={"super_admin"}),
-        ),
-        patch.object(auth_service, "create_access_token", return_value="access"),
-        patch.object(auth_service, "create_refresh_token", return_value="refresh"),
-        patch.object(auth_service, "decode_token", return_value={"jti": "r1"}),
-        patch.object(
-            auth_service.auth_repository,
-            "save_admin",
-            new=AsyncMock(return_value=admin),
-        ),
-    ):
-        token = await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+def _otp(*, verified: bool = False, expired: bool = False) -> PasswordResetOtp:
+    return PasswordResetOtp(
+        email="admin@example.com",
+        expires_at=utcnow() - timedelta(minutes=1) if expired else utcnow() + timedelta(minutes=5),
+        request_count=1,
+        window_started_at=utcnow(),
+        verified=verified,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# login
+# --------------------------------------------------------------------------- #
+
+
+async def test_login_success(fakes) -> None:
+    token = await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+
     assert token.access_token == "access"
     assert token.refresh_token == "refresh"
-    assert admin.current_refresh_jti == "r1"
+    assert fakes.repo.admin.current_refresh_jti == "r1"
+    assert fakes.repo.saved == [fakes.repo.admin]
 
 
-async def test_login_invalid_credentials() -> None:
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_email",
-        new=AsyncMock(return_value=None),
-    ):
-        with pytest.raises(InvalidCredentialsError):
-            await auth_service.login(LoginRequest(email="nope@example.com", password="pw"))
+async def test_login_success_resets_failed_attempts(fakes) -> None:
+    fakes.repo.admin.failed_login_attempts = 3
+    fakes.repo.admin.locked_until = None
+
+    await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+
+    assert fakes.repo.admin.failed_login_attempts == 0
+    assert fakes.repo.admin.locked_until is None
 
 
-async def test_login_inactive_account() -> None:
-    admin = _admin(status=Status.INACTIVE)
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service, "verify_password", return_value=True),
-    ):
-        with pytest.raises(AccountInactiveError):
-            await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+async def test_login_failure_unknown_admin(fakes) -> None:
+    fakes.repo.admin = None
+
+    with pytest.raises(InvalidCredentialsError):
+        await auth_service.login(LoginRequest(email="nope@example.com", password="pw"))
 
 
-async def test_login_wrong_password_increments_counter() -> None:
-    admin = _admin()
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service, "verify_password", return_value=False),
-        patch.object(
-            auth_service.auth_repository,
-            "save_admin",
-            new=AsyncMock(return_value=admin),
-        ),
-    ):
-        with pytest.raises(InvalidCredentialsError) as exc_info:
-            await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
-    assert exc_info.value.code == "E_401_AUTH_INVALID_CREDENTIALS"
-    assert admin.failed_login_attempts == 1
+async def test_login_failure_wrong_password_increments_counter(fakes) -> None:
+    fakes.password_ok = False
 
-
-async def test_login_locks_account_at_max_attempts() -> None:
-    admin = _admin(failed_login_attempts=4)
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service, "verify_password", return_value=False),
-        patch.object(
-            auth_service.auth_repository,
-            "save_admin",
-            new=AsyncMock(return_value=admin),
-        ),
-    ):
-        with pytest.raises(AccountLockedError):
-            await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
-    assert admin.locked_until is not None
-    assert admin.failed_login_attempts == 0
-
-
-async def test_login_rejects_locked_account() -> None:
-    admin = _admin(locked_until=utcnow() + timedelta(minutes=10))
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service, "verify_password", return_value=True) as verify,
-    ):
-        with pytest.raises(AccountLockedError):
-            await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
-        verify.assert_not_called()
-
-
-async def test_login_resets_counter_on_success() -> None:
-    admin = _admin(failed_login_attempts=3)
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service, "verify_password", return_value=True),
-        patch.object(
-            auth_service.rbac_service,
-            "permissions_for_admin",
-            new=AsyncMock(return_value={"S1.R"}),
-        ),
-        patch.object(
-            auth_service.rbac_service,
-            "roles_for_admin",
-            new=AsyncMock(return_value={"super_admin"}),
-        ),
-        patch.object(auth_service, "create_access_token", return_value="access"),
-        patch.object(auth_service, "create_refresh_token", return_value="refresh"),
-        patch.object(auth_service, "decode_token", return_value={"jti": "r1"}),
-        patch.object(
-            auth_service.auth_repository,
-            "save_admin",
-            new=AsyncMock(return_value=admin),
-        ),
-    ):
+    with pytest.raises(InvalidCredentialsError) as exc_info:
         await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
-    assert admin.failed_login_attempts == 0
-    assert admin.locked_until is None
+
+    assert exc_info.value.code == "E_401_AUTH_INVALID_CREDENTIALS"
+    assert fakes.repo.admin.failed_login_attempts == 1
 
 
-async def test_refresh_success_rotates_session() -> None:
-    admin_id = uuid.uuid4()
-    admin = _admin(id=admin_id, current_refresh_jti="r1")
-    with (
-        patch.object(
-            auth_service,
-            "decode_token",
+async def test_login_failure_locks_account_at_max_attempts(fakes) -> None:
+    fakes.password_ok = False
+    fakes.repo.admin.failed_login_attempts = 4
+
+    with pytest.raises(AccountLockedError):
+        await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+
+    assert fakes.repo.admin.locked_until is not None
+    assert fakes.repo.admin.failed_login_attempts == 0
+
+
+async def test_login_failure_locked_account_skips_password_check(fakes, monkeypatch) -> None:
+    fakes.repo.admin.locked_until = utcnow() + timedelta(minutes=10)
+    verify = Mock()
+    monkeypatch.setattr(auth_service, "verify_password", verify)
+
+    with pytest.raises(AccountLockedError):
+        await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+
+    verify.assert_not_called()
+
+
+async def test_login_failure_expired_lockout_is_cleared(fakes) -> None:
+    fakes.repo.admin.failed_login_attempts = 5
+    fakes.repo.admin.locked_until = utcnow() - timedelta(minutes=1)
+
+    await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+
+    assert fakes.repo.admin.locked_until is None
+    assert fakes.repo.admin.failed_login_attempts == 0
+
+
+async def test_login_failure_inactive_account(fakes) -> None:
+    fakes.repo.admin = active_admin(status=Status.INACTIVE)
+
+    with pytest.raises(AccountInactiveError):
+        await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
+
+
+# --------------------------------------------------------------------------- #
+# get_admin_by_id / get_admin_from_payload
+# --------------------------------------------------------------------------- #
+
+
+async def test_get_admin_by_id_success(fakes) -> None:
+    result = await auth_service.get_admin_by_id(fakes.repo.admin.id)
+    assert result is fakes.repo.admin
+
+
+async def test_get_admin_by_id_failure_unknown(fakes) -> None:
+    fakes.repo.admin = None
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.get_admin_by_id(uuid.uuid4())
+
+
+async def test_get_admin_by_id_failure_inactive(fakes) -> None:
+    fakes.repo.admin = active_admin(status=Status.INACTIVE)
+
+    with pytest.raises(AccountInactiveError):
+        await auth_service.get_admin_by_id(fakes.repo.admin.id)
+
+
+async def test_get_admin_from_payload_success_current_access(fakes) -> None:
+    fakes.repo.admin.current_refresh_jti = "r1"
+    payload = {"type": "access", "user_id": str(fakes.repo.admin.id), "jti": "a1", "rjti": "r1"}
+
+    result = await auth_service.get_admin_from_payload(payload)
+
+    assert result is fakes.repo.admin
+
+
+async def test_get_admin_from_payload_failure_stale_access_session(fakes) -> None:
+    fakes.repo.admin.current_refresh_jti = "r2"
+    payload = {"type": "access", "user_id": str(fakes.repo.admin.id), "jti": "a1", "rjti": "r1"}
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.get_admin_from_payload(payload)
+
+
+async def test_get_admin_from_payload_failure_missing_session(fakes) -> None:
+    fakes.repo.admin.current_refresh_jti = None
+    payload = {"type": "refresh", "user_id": str(fakes.repo.admin.id), "jti": "r1"}
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.get_admin_from_payload(payload)
+
+
+# --------------------------------------------------------------------------- #
+# refresh
+# --------------------------------------------------------------------------- #
+
+
+async def test_refresh_success_rotates_session(fakes, monkeypatch) -> None:
+    admin = fakes.repo.admin
+    admin.current_refresh_jti = "r1"
+    monkeypatch.setattr(
+        auth_service,
+        "decode_token",
+        Mock(
             side_effect=[
-                {"type": "refresh", "user_id": str(admin_id), "jti": "r1"},
+                {"type": "refresh", "user_id": str(admin.id), "jti": "r1"},
                 {"jti": "r2"},
-            ],
+            ]
         ),
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_id",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(
-            auth_service.rbac_service,
-            "permissions_for_admin",
-            new=AsyncMock(return_value={"S1.R", "S1.W", "S2.R"}),
-        ),
-        patch.object(
-            auth_service.rbac_service,
-            "roles_for_admin",
-            new=AsyncMock(return_value={"super_admin"}),
-        ),
-        patch.object(auth_service, "create_access_token", return_value="access"),
-        patch.object(auth_service, "create_refresh_token", return_value="refresh"),
-        patch.object(
-            auth_service.auth_repository,
-            "save_admin",
-            new=AsyncMock(return_value=admin),
-        ),
-    ):
-        token = await auth_service.refresh(RefreshRequest(refresh_token="r"))
+    )
+
+    token = await auth_service.refresh(RefreshRequest(refresh_token="r"))
+
     assert token.access_token == "access"
     assert token.refresh_token == "refresh"
     assert admin.current_refresh_jti == "r2"
 
 
-async def test_refresh_rejects_malformed_subject() -> None:
-    with patch.object(
-        auth_service, "decode_token", return_value={"type": "refresh", "user_id": "not-a-uuid"}
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.refresh(RefreshRequest(refresh_token="r"))
+async def test_refresh_failure_malformed_subject(fakes, monkeypatch) -> None:
+    monkeypatch.setattr(
+        auth_service,
+        "decode_token",
+        Mock(return_value={"type": "refresh", "user_id": "not-a-uuid"}),
+    )
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.refresh(RefreshRequest(refresh_token="r"))
 
 
-async def test_refresh_rejects_wrong_token_type() -> None:
-    with patch.object(
-        auth_service, "decode_token", return_value={"type": "access", "user_id": str(uuid.uuid4())}
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.refresh(RefreshRequest(refresh_token="r"))
+async def test_refresh_failure_wrong_token_type(fakes, monkeypatch) -> None:
+    monkeypatch.setattr(
+        auth_service,
+        "decode_token",
+        Mock(return_value={"type": "access", "user_id": str(uuid.uuid4())}),
+    )
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.refresh(RefreshRequest(refresh_token="r"))
 
 
-async def test_refresh_rejects_invalid_token() -> None:
-    with patch.object(auth_service, "decode_token", side_effect=JWTError("bad token")):
-        with pytest.raises(AuthenticationError):
-            await auth_service.refresh(RefreshRequest(refresh_token="r"))
+async def test_refresh_failure_invalid_token(fakes, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service, "decode_token", Mock(side_effect=JWTError("bad token")))
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.refresh(RefreshRequest(refresh_token="r"))
 
 
-async def test_refresh_rejects_unknown_admin() -> None:
-    with (
-        patch.object(
-            auth_service,
-            "decode_token",
-            return_value={"type": "refresh", "user_id": str(uuid.uuid4())},
-        ),
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_id",
-            new=AsyncMock(return_value=None),
-        ),
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.refresh(RefreshRequest(refresh_token="r"))
+async def test_refresh_failure_unknown_admin(fakes, monkeypatch) -> None:
+    fakes.repo.admin = None
+    monkeypatch.setattr(
+        auth_service,
+        "decode_token",
+        Mock(return_value={"type": "refresh", "user_id": str(uuid.uuid4())}),
+    )
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.refresh(RefreshRequest(refresh_token="r"))
 
 
-async def test_get_admin_from_payload_rejects_wrong_access_session() -> None:
-    admin = _admin(current_refresh_jti="r2")
-    payload = {"type": "access", "user_id": str(admin.id), "jti": "a1", "rjti": "r1"}
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_id",
-        new=AsyncMock(return_value=admin),
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.get_admin_from_payload(payload)
+# --------------------------------------------------------------------------- #
+# logout
+# --------------------------------------------------------------------------- #
 
 
-async def test_get_admin_from_payload_rejects_missing_session() -> None:
-    admin = _admin(current_refresh_jti=None)
-    payload = {"type": "refresh", "user_id": str(admin.id), "jti": "r1"}
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_id",
-        new=AsyncMock(return_value=admin),
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.get_admin_from_payload(payload)
+async def test_logout_success_clears_session_pointer(fakes) -> None:
+    fakes.repo.admin.current_refresh_jti = "r1"
+
+    await auth_service.logout(access_token="access-token")
+
+    assert fakes.repo.admin.current_refresh_jti is None
 
 
-async def test_get_admin_from_payload_accepts_current_access() -> None:
-    admin = _admin(current_refresh_jti="r1")
-    payload = {"type": "access", "user_id": str(admin.id), "jti": "a1", "rjti": "r1"}
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_id",
-        new=AsyncMock(return_value=admin),
-    ):
-        result = await auth_service.get_admin_from_payload(payload)
-    assert result is admin
+async def test_logout_failure_invalid_token(fakes, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service, "decode_token", Mock(side_effect=JWTError("bad token")))
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.logout(access_token="bad-token")
 
 
-async def test_logout_clears_session_pointer() -> None:
-    admin_id = uuid.uuid4()
-    admin = _admin(id=admin_id, current_refresh_jti="r1")
-    payload = {"type": "access", "user_id": str(admin_id)}
-    with (
-        patch.object(auth_service, "decode_token", return_value=payload),
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_id",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(
-            auth_service.auth_repository,
-            "save_admin",
-            new=AsyncMock(return_value=admin),
-        ),
-    ):
+async def test_logout_failure_non_access_token(fakes, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service, "decode_token", Mock(return_value={"type": "refresh"}))
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.logout(access_token="refresh-token")
+
+
+async def test_logout_failure_malformed_user_id(fakes, monkeypatch) -> None:
+    monkeypatch.setattr(
+        auth_service, "decode_token", Mock(return_value={"type": "access", "user_id": "not-a-uuid"})
+    )
+
+    with pytest.raises(AuthenticationError):
         await auth_service.logout(access_token="access-token")
-    assert admin.current_refresh_jti is None
 
 
-async def test_get_admin_by_id_returns_admin() -> None:
-    admin = _admin()
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_id",
-        new=AsyncMock(return_value=admin),
-    ):
-        result = await auth_service.get_admin_by_id(admin.id)
-    assert result is admin
+async def test_logout_failure_unknown_admin(fakes, monkeypatch) -> None:
+    fakes.repo.admin = None
+    monkeypatch.setattr(
+        auth_service,
+        "decode_token",
+        Mock(return_value={"type": "access", "user_id": str(uuid.uuid4())}),
+    )
+
+    with pytest.raises(AuthenticationError):
+        await auth_service.logout(access_token="access-token")
 
 
-async def test_get_admin_by_id_unknown_raises() -> None:
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_id",
-        new=AsyncMock(return_value=None),
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.get_admin_by_id(uuid.uuid4())
+# --------------------------------------------------------------------------- #
+# generate_otp (opaque: unknown/inactive admin still "succeeds")
+# --------------------------------------------------------------------------- #
 
 
-async def test_get_admin_by_id_inactive_raises() -> None:
-    admin = _admin(status=Status.INACTIVE)
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_id",
-        new=AsyncMock(return_value=admin),
-    ):
-        with pytest.raises(AccountInactiveError):
-            await auth_service.get_admin_by_id(admin.id)
+async def test_generate_otp_success_creates_row(fakes) -> None:
+    await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
 
-
-async def test_generate_otp_returns_for_unknown_admin() -> None:
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_email",
-        new=AsyncMock(return_value=None),
-    ):
-        await auth_service.generate_otp(GenerateOtpRequest(email="nope@example.com"))
-
-
-async def test_generate_otp_returns_for_inactive_admin() -> None:
-    admin = _admin(status=Status.INACTIVE)
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_email",
-        new=AsyncMock(return_value=admin),
-    ):
-        await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
-
-
-async def test_generate_otp_creates_row_for_active_admin() -> None:
-    admin = _admin()
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=None)),
-        patch.object(auth_service.otp_repository, "save", new=AsyncMock(return_value=None)) as save,
-    ):
-        await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
-    save.assert_awaited_once()
-    created = save.await_args.args[0]
+    created = fakes.otp.saved[0]
     assert isinstance(created, PasswordResetOtp)
     assert created.request_count == 1
 
 
-async def test_generate_otp_increments_within_window() -> None:
-    admin = _admin()
-    now = utcnow()
-    row = PasswordResetOtp(
-        email="admin@example.com", expires_at=now, request_count=1, window_started_at=now
-    )
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=row)),
-        patch.object(auth_service.otp_repository, "save", new=AsyncMock(return_value=None)) as save,
-    ):
-        await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
-    assert row.request_count == 2
-    save.assert_awaited_once()
+async def test_generate_otp_success_increments_within_window(fakes) -> None:
+    fakes.otp.row = _otp()
+    fakes.otp.row.request_count = 1
+
+    await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
+
+    assert fakes.otp.row.request_count == 2
+    assert fakes.otp.saved == [fakes.otp.row]
 
 
-async def test_generate_otp_throttles_at_limit() -> None:
-    admin = _admin()
-    now = utcnow()
-    row = PasswordResetOtp(
-        email="admin@example.com", expires_at=now, request_count=3, window_started_at=now
-    )
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=row)),
-    ):
-        with pytest.raises(OtpThrottledError):
-            await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
-
-
-async def test_generate_otp_resets_window_after_expiry() -> None:
-    admin = _admin()
-    row = PasswordResetOtp(
+async def test_generate_otp_success_resets_window_after_expiry(fakes) -> None:
+    fakes.otp.row = PasswordResetOtp(
         email="admin@example.com",
         expires_at=utcnow(),
         request_count=3,
         window_started_at=utcnow() - timedelta(minutes=20),
     )
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=row)),
-        patch.object(auth_service.otp_repository, "save", new=AsyncMock(return_value=None)) as save,
-    ):
+
+    await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
+
+    assert fakes.otp.row.request_count == 1
+    assert fakes.otp.saved == [fakes.otp.row]
+
+
+async def test_generate_otp_failure_throttled_at_limit(fakes) -> None:
+    fakes.otp.row = PasswordResetOtp(
+        email="admin@example.com",
+        expires_at=utcnow(),
+        request_count=3,
+        window_started_at=utcnow(),
+    )
+
+    with pytest.raises(OtpThrottledError):
         await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
-    assert row.request_count == 1
-    save.assert_awaited_once()
 
 
-async def test_verify_otp_accepts_correct_otp() -> None:
-    admin = _admin()
-    row = PasswordResetOtp(
-        email="admin@example.com",
-        expires_at=utcnow() + timedelta(minutes=5),
-        request_count=1,
-        window_started_at=utcnow(),
-    )
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=row)),
-        patch.object(auth_service.otp_repository, "save", new=AsyncMock(return_value=row)) as save,
-    ):
+async def test_generate_otp_opaque_success_for_unknown_admin(fakes) -> None:
+    fakes.repo.admin = None
+
+    await auth_service.generate_otp(GenerateOtpRequest(email="nope@example.com"))
+
+
+async def test_generate_otp_opaque_success_for_inactive_admin(fakes) -> None:
+    fakes.repo.admin = active_admin(status=Status.INACTIVE)
+
+    await auth_service.generate_otp(GenerateOtpRequest(email="admin@example.com"))
+
+
+# --------------------------------------------------------------------------- #
+# verify_otp
+# --------------------------------------------------------------------------- #
+
+
+async def test_verify_otp_success_marks_verified(fakes) -> None:
+    fakes.otp.row = _otp()
+
+    await auth_service.verify_otp(VerifyOtpRequest(email="admin@example.com", otp="12345"))
+
+    assert fakes.otp.row.verified is True
+    assert fakes.otp.saved == [fakes.otp.row]
+
+
+async def test_verify_otp_failure_wrong_otp(fakes) -> None:
+    fakes.otp.row = _otp()
+
+    with pytest.raises(InvalidOtpError) as exc_info:
+        await auth_service.verify_otp(VerifyOtpRequest(email="admin@example.com", otp="wrong"))
+
+    assert exc_info.value.code == "E_400_AUTH_INVALID_OTP"
+
+
+async def test_verify_otp_failure_unknown_admin_opaque(fakes) -> None:
+    fakes.repo.admin = None
+
+    with pytest.raises(InvalidOtpError) as exc_info:
+        await auth_service.verify_otp(VerifyOtpRequest(email="nope@example.com", otp="12345"))
+
+    assert exc_info.value.code == "E_400_AUTH_INVALID_OTP"
+
+
+async def test_verify_otp_failure_expired(fakes) -> None:
+    fakes.otp.row = _otp(expired=True)
+
+    with pytest.raises(InvalidOtpError):
         await auth_service.verify_otp(VerifyOtpRequest(email="admin@example.com", otp="12345"))
-    assert row.verified is True
-    save.assert_awaited_once()
 
 
-async def test_verify_otp_rejects_wrong_otp() -> None:
-    admin = _admin()
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_email",
-        new=AsyncMock(return_value=admin),
-    ):
-        with pytest.raises(InvalidOtpError) as exc_info:
-            await auth_service.verify_otp(VerifyOtpRequest(email="admin@example.com", otp="wrong"))
-    assert exc_info.value.code == "E_400_AUTH_INVALID_OTP"
+async def test_verify_otp_failure_missing_row(fakes) -> None:
+    with pytest.raises(InvalidOtpError):
+        await auth_service.verify_otp(VerifyOtpRequest(email="admin@example.com", otp="12345"))
 
 
-async def test_verify_otp_rejects_unknown_admin_without_revealing() -> None:
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_email",
-        new=AsyncMock(return_value=None),
-    ):
-        with pytest.raises(InvalidOtpError) as exc_info:
-            await auth_service.verify_otp(VerifyOtpRequest(email="nope@example.com", otp="12345"))
-    assert exc_info.value.code == "E_400_AUTH_INVALID_OTP"
+# --------------------------------------------------------------------------- #
+# update_password
+# --------------------------------------------------------------------------- #
 
 
-async def test_verify_otp_rejects_expired() -> None:
-    admin = _admin()
-    row = PasswordResetOtp(
-        email="admin@example.com",
-        expires_at=utcnow() - timedelta(minutes=1),
-        request_count=1,
-        window_started_at=utcnow(),
-    )
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=row)),
-    ):
-        with pytest.raises(InvalidOtpError):
-            await auth_service.verify_otp(VerifyOtpRequest(email="admin@example.com", otp="12345"))
+async def test_update_password_success_clears_lockout_and_session(fakes) -> None:
+    admin = fakes.repo.admin
+    admin.failed_login_attempts = 4
+    admin.locked_until = utcnow()
+    admin.current_refresh_jti = "r1"
+    fakes.otp.row = _otp(verified=True)
+    fakes.password_ok = False  # the new password must NOT match history
 
-
-async def test_verify_otp_rejects_missing_row() -> None:
-    admin = _admin()
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=None)),
-    ):
-        with pytest.raises(InvalidOtpError):
-            await auth_service.verify_otp(VerifyOtpRequest(email="admin@example.com", otp="12345"))
-
-
-async def test_update_password_rejects_unknown_admin_without_revealing() -> None:
-    with patch.object(
-        auth_service.auth_repository,
-        "get_admin_by_email",
-        new=AsyncMock(return_value=None),
-    ):
-        with pytest.raises(PasswordResetFailedError) as exc_info:
-            await auth_service.update_password(
-                UpdatePasswordRequest(
-                    email="nope@example.com",
-                    new_password="S3cureP@ss",
-                    confirm_password="S3cureP@ss",
-                )
-            )
-    assert exc_info.value.code == "E_400_AUTH_PASSWORD_RESET_FAILED"
-
-
-async def test_update_password_success_clears_lockout_and_session() -> None:
-    admin = _admin(failed_login_attempts=4, locked_until=utcnow(), current_refresh_jti="r1")
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(
-            auth_service.otp_repository,
-            "get",
-            new=AsyncMock(
-                return_value=PasswordResetOtp(
-                    email="admin@example.com",
-                    expires_at=utcnow() + timedelta(minutes=5),
-                    request_count=1,
-                    window_started_at=utcnow(),
-                    verified=True,
-                )
-            ),
-        ),
-        patch.object(
-            auth_service.password_history_repository,
-            "recent_for_admin",
-            new=AsyncMock(return_value=[]),
-        ),
-        patch.object(auth_service, "verify_password", return_value=False),
-        patch.object(auth_service, "hash_password", return_value="hashed"),
-        patch.object(
-            auth_service.password_history_repository,
-            "add",
-            new=AsyncMock(return_value=None),
-        ),
-        patch.object(
-            auth_service.password_history_repository,
-            "trim",
-            new=AsyncMock(return_value=None),
-        ),
-        patch.object(
-            auth_service.auth_repository,
-            "update_admin_password",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(
-            auth_service.otp_repository,
-            "delete",
-            new=AsyncMock(return_value=None),
-        ) as delete_otp,
-    ):
-        result = await auth_service.update_password(
-            UpdatePasswordRequest(
-                email="admin@example.com",
-                new_password="S3cureP@ss",
-                confirm_password="S3cureP@ss",
-            )
+    result = await auth_service.update_password(
+        UpdatePasswordRequest(
+            email="admin@example.com", new_password="S3cureP@ss", confirm_password="S3cureP@ss"
         )
+    )
+
     assert result is admin
     assert admin.failed_login_attempts == 0
     assert admin.locked_until is None
     assert admin.current_refresh_jti is None
-    delete_otp.assert_awaited_once_with("admin@example.com")
+    assert fakes.repo.password_updates == [(admin, "hashed")]
+    assert fakes.otp.deleted == ["admin@example.com"]
 
 
-async def test_update_password_rejects_reused_password() -> None:
-    admin = _admin()
-    entry = PasswordHistory(platform_admin_id=admin.id, hashed_password="oldhash")
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(
-            auth_service.otp_repository,
-            "get",
-            new=AsyncMock(
-                return_value=PasswordResetOtp(
-                    email="admin@example.com",
-                    expires_at=utcnow() + timedelta(minutes=5),
-                    request_count=1,
-                    window_started_at=utcnow(),
-                    verified=True,
-                )
-            ),
-        ),
-        patch.object(
-            auth_service.password_history_repository,
-            "recent_for_admin",
-            new=AsyncMock(return_value=[entry]),
-        ),
-        patch.object(auth_service, "verify_password", return_value=True),
-    ):
-        with pytest.raises(PasswordReuseError):
-            await auth_service.update_password(
-                UpdatePasswordRequest(
-                    email="admin@example.com",
-                    new_password="S3cureP@ss",
-                    confirm_password="S3cureP@ss",
-                )
+async def test_update_password_failure_reused_password(fakes) -> None:
+    admin = fakes.repo.admin
+    fakes.otp.row = _otp(verified=True)
+    fakes.history.recent = [
+        PasswordHistory(platform_admin_id=admin.id, hashed_password="oldhash", created_at=utcnow())
+    ]
+    fakes.password_ok = True  # new password matches a previous one
+
+    with pytest.raises(PasswordReuseError):
+        await auth_service.update_password(
+            UpdatePasswordRequest(
+                email="admin@example.com", new_password="S3cureP@ss", confirm_password="S3cureP@ss"
             )
+        )
 
 
-async def test_update_password_rejects_unverified_otp() -> None:
-    admin = _admin()
-    row = PasswordResetOtp(
-        email="admin@example.com",
-        expires_at=utcnow() + timedelta(minutes=5),
-        request_count=1,
-        window_started_at=utcnow(),
-        verified=False,
-    )
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=row)),
-    ):
-        with pytest.raises(PasswordResetFailedError) as exc_info:
-            await auth_service.update_password(
-                UpdatePasswordRequest(
-                    email="admin@example.com",
-                    new_password="S3cureP@ss",
-                    confirm_password="S3cureP@ss",
-                )
+async def test_update_password_failure_unverified_otp(fakes) -> None:
+    fakes.otp.row = _otp(verified=False)
+
+    with pytest.raises(PasswordResetFailedError) as exc_info:
+        await auth_service.update_password(
+            UpdatePasswordRequest(
+                email="admin@example.com", new_password="S3cureP@ss", confirm_password="S3cureP@ss"
             )
+        )
+
     assert exc_info.value.code == "E_400_AUTH_PASSWORD_RESET_FAILED"
 
 
-async def test_update_password_rejects_expired_otp() -> None:
-    admin = _admin()
-    row = PasswordResetOtp(
-        email="admin@example.com",
-        expires_at=utcnow() - timedelta(minutes=1),
-        request_count=1,
-        window_started_at=utcnow(),
-        verified=True,
-    )
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service.otp_repository, "get", new=AsyncMock(return_value=row)),
-    ):
-        with pytest.raises(PasswordResetFailedError) as exc_info:
-            await auth_service.update_password(
-                UpdatePasswordRequest(
-                    email="admin@example.com",
-                    new_password="S3cureP@ss",
-                    confirm_password="S3cureP@ss",
-                )
+async def test_update_password_failure_expired_otp(fakes) -> None:
+    fakes.otp.row = _otp(verified=True, expired=True)
+
+    with pytest.raises(PasswordResetFailedError) as exc_info:
+        await auth_service.update_password(
+            UpdatePasswordRequest(
+                email="admin@example.com", new_password="S3cureP@ss", confirm_password="S3cureP@ss"
             )
+        )
+
     assert exc_info.value.code == "E_400_AUTH_PASSWORD_RESET_FAILED"
 
 
-async def test_login_resets_expired_lockout() -> None:
-    admin = _admin(failed_login_attempts=5, locked_until=utcnow() - timedelta(minutes=1))
-    with (
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_email",
-            new=AsyncMock(return_value=admin),
-        ),
-        patch.object(auth_service, "verify_password", return_value=True),
-        patch.object(
-            auth_service.rbac_service,
-            "permissions_for_admin",
-            new=AsyncMock(return_value={"S1.R"}),
-        ),
-        patch.object(
-            auth_service.rbac_service,
-            "roles_for_admin",
-            new=AsyncMock(return_value={"super_admin"}),
-        ),
-        patch.object(auth_service, "create_access_token", return_value="access"),
-        patch.object(auth_service, "create_refresh_token", return_value="refresh"),
-        patch.object(auth_service, "decode_token", return_value={"jti": "r1"}),
-        patch.object(
-            auth_service.auth_repository,
-            "save_admin",
-            new=AsyncMock(return_value=admin),
-        ),
-    ):
-        token = await auth_service.login(LoginRequest(email="admin@example.com", password="pw"))
-    assert token.access_token == "access"
-    assert admin.locked_until is None
-    assert admin.failed_login_attempts == 0
+async def test_update_password_failure_unknown_admin_opaque(fakes) -> None:
+    fakes.repo.admin = None
 
+    with pytest.raises(PasswordResetFailedError) as exc_info:
+        await auth_service.update_password(
+            UpdatePasswordRequest(
+                email="nope@example.com", new_password="S3cureP@ss", confirm_password="S3cureP@ss"
+            )
+        )
 
-async def test_logout_rejects_invalid_token() -> None:
-    with patch.object(auth_service, "decode_token", side_effect=JWTError("bad token")):
-        with pytest.raises(AuthenticationError):
-            await auth_service.logout(access_token="bad-token")
-
-
-async def test_logout_rejects_non_access_token() -> None:
-    with patch.object(auth_service, "decode_token", return_value={"type": "refresh"}):
-        with pytest.raises(AuthenticationError):
-            await auth_service.logout(access_token="refresh-token")
-
-
-async def test_logout_rejects_malformed_user_id() -> None:
-    with patch.object(
-        auth_service, "decode_token", return_value={"type": "access", "user_id": "not-a-uuid"}
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.logout(access_token="access-token")
-
-
-async def test_logout_rejects_unknown_admin() -> None:
-    with (
-        patch.object(
-            auth_service,
-            "decode_token",
-            return_value={"type": "access", "user_id": str(uuid.uuid4())},
-        ),
-        patch.object(
-            auth_service.auth_repository,
-            "get_admin_by_id",
-            new=AsyncMock(return_value=None),
-        ),
-    ):
-        with pytest.raises(AuthenticationError):
-            await auth_service.logout(access_token="access-token")
+    assert exc_info.value.code == "E_400_AUTH_PASSWORD_RESET_FAILED"

@@ -38,7 +38,7 @@ from app.models.enums import (
 )
 from app.models.export import Export
 from app.repositories import export_repository
-from app.schemas.export import ExportCreate
+from app.schemas.export import AuditExportFilters, ExportCreate, UsersExportFilters
 from app.services import audit_service, xlsx_writer
 from app.utils.time import utcnow
 
@@ -50,7 +50,8 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 async def create_export(*, admin_email: str, data: ExportCreate) -> Export:
     """Validate, count, persist, and kick off background generation."""
     spec = _spec(data.module)
-    filters = data.filters.model_dump(mode="json")
+    filters_model = _filters_for_module(data)
+    filters = filters_model.model_dump(mode="json")
 
     row_count = await _count_rows(spec, filters)
     if row_count > settings.export_max_rows:
@@ -231,6 +232,27 @@ def _extract_row(entry: object, spec: ExportSpec) -> list[Any]:
 def _filename(spec: ExportSpec, export: Export) -> str:
     stamp = export.created_at.strftime("%Y%m%d_%H%M%S")
     return f"{spec.filename_prefix}_{stamp}_{export.id.hex[:8]}.xlsx"
+
+
+def _filters_for_module(data: ExportCreate) -> AuditExportFilters | UsersExportFilters:
+    """Resolve the per-module filter shape; reject a mismatched shape outright.
+
+    The union alone cannot see ``module`` (pydantic validates fields in
+    isolation), so a users-shaped filter on an audit export would otherwise
+    parse and silently export *everything*. Invariant ③: no silent degradation.
+    """
+    if data.filters is None:
+        if data.module == "audit":
+            return AuditExportFilters()
+        if data.module == "users":
+            return UsersExportFilters()
+    if data.module == "audit" and isinstance(data.filters, AuditExportFilters):
+        return data.filters
+    if data.module == "users" and isinstance(data.filters, UsersExportFilters):
+        return data.filters
+    raise ValidationError(
+        data=field_errors([("filters", f"filters shape does not match module '{data.module}'")])
+    )
 
 
 def _spec(module: str) -> ExportSpec:
