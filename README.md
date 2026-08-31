@@ -1,6 +1,6 @@
 # platform-admin
 
-FastAPI backend where **Platform Admins** log in and manage platform **Users**, with an append-only audit log.
+FastAPI backend where **Platform Admins** log in and manage platform **Users**, with an append-only audit log and **xlsx exports** (audit logs → Excel, 24h single-user links).
 
 ## Architecture
 
@@ -87,10 +87,12 @@ platform-admin/
 │   │       ├── users.py        # user CRUD routes
 │   │       ├── roles.py        # role CRUD routes
 │   │       ├── screens.py      # screen CRUD routes
-│   │       └── audit_logs.py   # GET /api/v1/audit-logs
+│   │       ├── audit_logs.py   # GET /api/v1/audit-logs
+│   │       └── exports.py      # export routes (create, status, download)
 │   ├── core/
 │   │   ├── config.py           # Settings (from env)
 │   │   ├── constants.py        # pagination + header constants
+│   │   ├── export_config.py    # per-module export specs (field allow-lists, classification)
 │   │   ├── audit_context.py    # ambient audit actor + request metadata (ContextVars)
 │   │   ├── security.py         # bcrypt hashing + JWT
 │   │   ├── logging.py          # structured JSON logging + request_id
@@ -112,7 +114,8 @@ platform-admin/
 │   │   ├── platform_admin_role.py  # admin → role assignments
 │   │   ├── password_reset_otp.py   # password-reset OTP state (expiry + throttle)
 │   │   ├── password_history.py     # previous hashed passwords (reuse check)
-│   │   └── audit_log.py        # audit_logs table
+│   │   ├── audit_log.py        # audit_logs table
+│   │   └── export.py           # exports table (export jobs + 24h link state)
 │   ├── repositories/
 │   │   ├── auth_repository.py  # admin lookup
 │   │   ├── health_repository.py # DB liveness probe (SELECT 1)
@@ -123,6 +126,7 @@ platform-admin/
 │   │   ├── otp_repository.py   # password-reset OTP state SQL
 │   │   ├── password_history_repository.py  # password history SQL
 │   │   └── audit_repository.py # audit SQL (insert + list only — append-only)
+│   │   └── export_repository.py # export SQL + keyset-streamed audit reads
 │   ├── schemas/
 │   │   ├── common.py           # ApiResponse envelope + Pagination
 │   │   ├── fields.py           # shared validated field types (EmailStr, NameStr, PasswordStr, ScreenCodeStr)
@@ -131,6 +135,7 @@ platform-admin/
 │   │   ├── role.py             # role DTOs + result codes
 │   │   ├── screen.py           # screen DTOs + result codes
 │   │   ├── audit.py            # audit DTOs + result codes
+│   │   ├── export.py           # export DTOs + result codes
 │   │   └── health.py           # health DTO + result codes
 │   ├── services/
 │   │   ├── auth_service.py     # login, refresh, password reset, admin resolution
@@ -139,6 +144,8 @@ platform-admin/
 │   │   ├── role_service.py     # role business rules
 │   │   ├── screen_service.py   # screen business rules
 │   │   ├── rbac_service.py     # effective permissions business rule
+│   │   ├── export_service.py   # export engine (create, background generate, download)
+│   │   ├── xlsx_writer.py      # streaming xlsx writer (metadata + data sheets)
 │   │   └── audit_service.py    # audit recording (best-effort)
 │   └── utils/
 │       ├── limits.py           # shared field-length/range constants
@@ -150,12 +157,14 @@ platform-admin/
 │   ├── standards.md            # the coding rules
 │   ├── testing-standards.md    # enterprise testing rules (all test types)
 │   ├── api.md                  # API reference
+│   ├── export-manual-testing.md # manual testing guide for the export APIs
 │   └── adr/                    # architecture decision records
 ├── tests/
 │   ├── conftest.py             # env setup (no DB connection)
-│   └── unit/
-│       ├── services/           # pure unit tests (repositories mocked)
-│       └── repositories/       # pure unit tests (mocked AsyncSession)
+│   ├── unit/
+│   │   ├── services/           # pure unit tests (repositories mocked)
+│   │   └── repositories/       # pure unit tests (mocked AsyncSession)
+│   └── integration/            # real-DB tests (export lifecycle end-to-end)
 ├── CONTEXT.md                  # domain glossary
 ├── README.md                   # this file
 └── pyproject.toml              # project + tooling config

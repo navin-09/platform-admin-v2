@@ -6,6 +6,15 @@ class Status(StrEnum):
     INACTIVE = "inactive"
 
 
+class ExportStatus(StrEnum):
+    """Lifecycle of an export record (BRD: pending → ready; expired after 24h)."""
+
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+    EXPIRED = "expired"
+
+
 class AuditAction(StrEnum):
     LOGIN_SUCCESS = "auth.login.success"
     LOGIN_FAILURE = "auth.login.failure"
@@ -31,6 +40,8 @@ class AuditAction(StrEnum):
     SCREEN_DELETE = "screen.delete"
     AUDIT_READ = "audit.read"
     ACCESS_DENIED = "access.denied"
+    EXPORT_GENERATED = "export.generated"
+    EXPORT_DOWNLOADED = "export.downloaded"
 
 
 class AuditResourceType(StrEnum):
@@ -39,6 +50,7 @@ class AuditResourceType(StrEnum):
     ROLE = "role"
     SCREEN = "screen"
     AUDIT = "audit"
+    EXPORT = "export"
 
 
 class ActorType(StrEnum):
@@ -100,6 +112,8 @@ class AuditActionFilter(StrEnum):
     SCREEN_DELETE = AuditAction.SCREEN_DELETE.value
     AUDIT_READ = AuditAction.AUDIT_READ.value
     ACCESS_DENIED = AuditAction.ACCESS_DENIED.value
+    EXPORT_GENERATED = AuditAction.EXPORT_GENERATED.value
+    EXPORT_DOWNLOADED = AuditAction.EXPORT_DOWNLOADED.value
 
 
 class AuditResourceTypeFilter(StrEnum):
@@ -109,6 +123,7 @@ class AuditResourceTypeFilter(StrEnum):
     ROLE = AuditResourceType.ROLE.value
     SCREEN = AuditResourceType.SCREEN.value
     AUDIT = AuditResourceType.AUDIT.value
+    EXPORT = AuditResourceType.EXPORT.value
 
 
 class AuditActorTypeFilter(StrEnum):

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +45,16 @@ class Settings(BaseSettings):
 
     # Audit
     audit_retention_days: int = 365
+
+    # Exports (BRD §6.6: reason, allow-list, 24h single-user link, max 100k/file)
+    export_dir: str = "exports"
+    export_link_ttl_hours: int = 24
+    export_max_rows: int = 100_000
+    export_stream_chunk_size: int = 1000
+
+    @property
+    def export_dir_path(self) -> Path:
+        return Path(self.export_dir)
 
 
 settings = Settings()

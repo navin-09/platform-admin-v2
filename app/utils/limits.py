@@ -20,6 +20,14 @@ JTI_MAX_LENGTH = 36  # UUID string (platform_admins.current_refresh_jti)
 SEARCH_MAX_LENGTH = 255
 ACTOR_FILTER_MAX_LENGTH = 255
 
+# Export limits (BRD §6.6 / §17.7: mandatory reason, 24h link, 100k rows/file)
+EXPORT_REASON_MAX_LENGTH = 500
+EXPORT_MODULE_MAX_LENGTH = 50
+EXPORT_FORMAT_MAX_LENGTH = 10
+EXPORT_FILENAME_MAX_LENGTH = 255
+EXPORT_CLASSIFICATION_MAX_LENGTH = 50
+EXPORT_SHEET_NAME_MAX_LENGTH = 100
+
 # Audit-entry column lengths (app/models/audit_log.py)
 ACTOR_TYPE_MAX_LENGTH = 255  # ActorType value ('admin' | 'system')
 ACTION_MAX_LENGTH = 255  # AuditAction value (e.g. 'user.create')
