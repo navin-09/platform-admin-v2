@@ -60,6 +60,21 @@ async def test_list_users_with_filters() -> None:
     assert total == 1
 
 
+async def test_list_users_with_date_filters() -> None:
+    from datetime import date
+
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=1)
+    db.execute = AsyncMock(return_value=MagicMock())
+    db.execute.return_value.scalars.return_value.all.return_value = []
+    with patch.object(user_repository, "get_session", return_value=db):
+        users, total = await user_repository.list_users(
+            page=1, limit=20, from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+        )
+    assert users == []
+    assert total == 1
+
+
 async def test_update_user_applies_fields_and_commits() -> None:
     db = MagicMock()
     db.commit = AsyncMock()
