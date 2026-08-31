@@ -1,5 +1,4 @@
-"""Audit repository tests (mocked session)."""
-
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.repositories import audit_repository
@@ -37,6 +36,21 @@ async def test_list_audit_logs_with_filters() -> None:
     with patch.object(audit_repository, "get_session", return_value=db):
         entries, total = await audit_repository.list_audit_logs(
             page=1, limit=20, actor="admin", action="user.create", resource_type="user"
+        )
+    assert entries == []
+    assert total == 0
+
+
+async def test_list_audit_logs_with_date_filters() -> None:
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=0)
+    db.execute = AsyncMock(return_value=MagicMock())
+    db.execute.return_value.scalars.return_value.all.return_value = []
+    from_date = date(2026, 8, 1)
+    to_date = date(2026, 8, 31)
+    with patch.object(audit_repository, "get_session", return_value=db):
+        entries, total = await audit_repository.list_audit_logs(
+            page=1, limit=20, from_date=from_date, to_date=to_date
         )
     assert entries == []
     assert total == 0

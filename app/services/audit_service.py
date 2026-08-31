@@ -1,6 +1,7 @@
 """Audit recording and listing business logic."""
 
 import logging
+from datetime import date
 from typing import Any
 
 from app.core.audit_context import get_current_actor, get_request_metadata
@@ -72,6 +73,8 @@ async def list_audit_logs(
     action: str | None = None,
     resource_type: str | None = None,
     actor_type: str | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> tuple[list[AuditLog], int]:
     return await audit_repository.list_audit_logs(
         page=page,
@@ -80,4 +83,6 @@ async def list_audit_logs(
         action=action,
         resource_type=resource_type,
         actor_type=actor_type,
+        from_date=from_date,
+        to_date=to_date,
     )

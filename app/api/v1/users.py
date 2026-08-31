@@ -1,6 +1,5 @@
-"""User CRUD routes."""
-
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
@@ -59,14 +58,22 @@ async def list_users(
         None, max_length=SEARCH_MAX_LENGTH, description="Search by name or email"
     ),
     status: StatusFilter = Query(StatusFilter.ALL, description="Filter by user status"),
+    from_date: date | None = Query(
+        None, description="Filter users created on or after this date (YYYY-MM-DD)"
+    ),
+    to_date: date | None = Query(
+        None, description="Filter users created on or before this date (YYYY-MM-DD)"
+    ),
     _: None = Depends(require_permission(PermissionName.USERS_READ)),
 ) -> ApiResponse[ListData[UserRead]]:
-    """List users, paginated and optionally filtered by search text or status."""
+    """List users, paginated and optionally filtered by search text, status, or date range."""
     users, total = await user_service.list_users(
         page=page,
         limit=limit,
         search=search,
         status=resolve_filter(status, Status),
+        from_date=from_date,
+        to_date=to_date,
     )
     return ApiResponse(
         code=CODE_LISTED,

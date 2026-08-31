@@ -34,6 +34,33 @@ async def test_list_audit_logs() -> None:
     assert total == 0
 
 
+async def test_list_audit_logs_with_date_filters() -> None:
+    from datetime import date
+
+    from_date = date(2026, 8, 1)
+    to_date = date(2026, 8, 31)
+    with patch.object(
+        audit_service.audit_repository,
+        "list_audit_logs",
+        new=AsyncMock(return_value=([], 0)),
+    ) as mock_list:
+        entries, total = await audit_service.list_audit_logs(
+            page=1, limit=20, from_date=from_date, to_date=to_date
+        )
+    assert entries == []
+    assert total == 0
+    mock_list.assert_awaited_once_with(
+        page=1,
+        limit=20,
+        actor=None,
+        action=None,
+        resource_type=None,
+        actor_type=None,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+
 async def test_record_resolves_actor_from_context() -> None:
     from app.core.audit_context import reset_current_actor, set_current_actor
 

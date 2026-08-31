@@ -1,4 +1,4 @@
-"""Audit log listing routes."""
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
@@ -47,10 +47,18 @@ async def list_audit_logs(
     actor_type: AuditActorTypeFilter = Query(
         AuditActorTypeFilter.ALL, description="Filter by actor type"
     ),
+    from_date: date | None = Query(
+        None, description="Filter audit logs created on or after this date (YYYY-MM-DD)"
+    ),
+    to_date: date | None = Query(
+        None, description="Filter audit logs created on or before this date (YYYY-MM-DD)"
+    ),
     admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.AUDIT_READ)),
 ) -> ApiResponse[ListData[AuditLogRead]]:
-    """List audit log entries, paginated and filterable by actor, action, or resource type."""
+    """List audit log entries, paginated and filterable by actor, action,
+    resource type, or date range.
+    """
     entries, total = await audit_service.list_audit_logs(
         page=page,
         limit=limit,
@@ -58,6 +66,8 @@ async def list_audit_logs(
         action=resolve_filter(action, AuditAction),
         resource_type=resolve_filter(resource_type, AuditResourceType),
         actor_type=resolve_filter(actor_type, ActorType),
+        from_date=from_date,
+        to_date=to_date,
     )
     response: ApiResponse[ListData[AuditLogRead]] = ApiResponse(
         code=CODE_LISTED,

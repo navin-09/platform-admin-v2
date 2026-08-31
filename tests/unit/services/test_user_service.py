@@ -89,6 +89,29 @@ async def test_list_users() -> None:
     assert total == 0
 
 
+async def test_list_users_with_date_filters() -> None:
+    from datetime import date
+
+    from_date = date(2026, 8, 1)
+    to_date = date(2026, 8, 31)
+    with patch.object(
+        user_service.user_repository, "list_users", new=AsyncMock(return_value=([], 0))
+    ) as mock_list:
+        users, total = await user_service.list_users(
+            page=1, limit=20, from_date=from_date, to_date=to_date
+        )
+    assert users == []
+    assert total == 0
+    mock_list.assert_awaited_once_with(
+        page=1,
+        limit=20,
+        search=None,
+        status=None,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+
 async def test_update_user_applies_fields() -> None:
     user = _user()
     record = AsyncMock()

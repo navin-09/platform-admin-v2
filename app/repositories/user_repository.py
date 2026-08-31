@@ -1,6 +1,5 @@
-"""Platform Admin data access (all SQL) — the Users API is mapped onto platform_admins."""
-
 import uuid
+from datetime import date, datetime, time
 from typing import Any
 
 from sqlalchemy import ColumnElement, func, or_, select
@@ -25,6 +24,8 @@ async def list_users(
     limit: int = DEFAULT_PAGE_SIZE,
     search: str | None = None,
     status: Status | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> tuple[list[PlatformAdmin], int]:
     db = get_session()
     filters: list[ColumnElement[bool]] = []
@@ -38,6 +39,10 @@ async def list_users(
         )
     if status is not None:
         filters.append(col(PlatformAdmin.status) == status)
+    if from_date is not None:
+        filters.append(col(PlatformAdmin.created_at) >= datetime.combine(from_date, time.min))
+    if to_date is not None:
+        filters.append(col(PlatformAdmin.created_at) <= datetime.combine(to_date, time.max))
 
     total = await db.scalar(select(func.count()).select_from(PlatformAdmin).where(*filters))
     result = await db.execute(
