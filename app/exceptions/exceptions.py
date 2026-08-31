@@ -133,6 +133,30 @@ class ProtectedResourceError(ConflictError):
     message = "This resource is protected and cannot be deleted or deactivated"
 
 
+class ExportNotFoundError(AppError):
+    """Raised when an export record does not exist or belongs to someone else."""
+
+    status_code = 404
+    code = "E_404_EXPORT_NOT_FOUND"
+    message = "Export not found"
+
+
+class ExportExpiredError(AppError):
+    """Raised when the 24h single-user download link has expired."""
+
+    status_code = 410
+    code = "E_410_EXPORT_EXPIRED"
+    message = "The export link has expired. Please create a new export"
+
+
+class ExportTooLargeError(AppError):
+    """Raised when an export would exceed the 100,000-record per-file cap."""
+
+    status_code = 413
+    code = "E_413_EXPORT_TOO_LARGE"
+    message = "The export exceeds the maximum of 100,000 records. Narrow the filters and try again"
+
+
 class InvalidOtpError(AppError):
     """Raised when the password-reset OTP is wrong or expired."""
 

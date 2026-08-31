@@ -1,4 +1,5 @@
 from app.models.audit_log import AuditLog
+from app.models.export import Export
 from app.models.password_history import PasswordHistory
 from app.models.password_reset_otp import PasswordResetOtp
 from app.models.platform_admin import PlatformAdmin
@@ -10,6 +11,7 @@ from app.models.user import User
 
 __all__ = [
     "AuditLog",
+    "Export",
     "PasswordHistory",
     "PasswordResetOtp",
     "PlatformAdmin",

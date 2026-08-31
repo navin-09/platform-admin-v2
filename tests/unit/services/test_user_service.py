@@ -1,53 +1,48 @@
-"""Platform Admin (Users API) service tests (repositories mocked)."""
+"""Platform Admin (Users API) service unit tests — faked collaborators."""
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
-from app.exceptions.exceptions import AppError, LastAdminError
+from app.exceptions.exceptions import EmailExistsError, LastAdminError, UserNotFoundError
 from app.models.enums import AuditAction, AuditResourceType, Status
-from app.models.platform_admin import PlatformAdmin
 from app.schemas.user import UserCreate, UserReplace, UserUpdate
 from app.services import user_service
+from tests.unit.fakes import FakeRbacRepository, FakeUserRepository, active_admin
 
 
-def _user(email: str = "alice@example.com") -> PlatformAdmin:
-    return PlatformAdmin(
-        id=uuid.uuid4(),
-        email=email,
-        username="Alice",
-        status=Status.ACTIVE,
-        hashed_password="hash",
+@pytest.fixture()
+def fakes(monkeypatch) -> FakeUserRepository:
+    repo = FakeUserRepository(user=active_admin())
+    audit = AsyncMock()
+    monkeypatch.setattr(user_service, "user_repository", repo)
+    monkeypatch.setattr(user_service, "rbac_repository", FakeRbacRepository())
+    monkeypatch.setattr(user_service, "hash_password", lambda _plain: "hashed")
+    monkeypatch.setattr(user_service.audit_service, "record", audit)
+    repo.audit = audit
+    return repo
+
+
+def _user(email: str = "alice@example.com"):
+    return active_admin(email=email, username="Alice")
+
+
+# --------------------------------------------------------------------------- #
+# create_user
+# --------------------------------------------------------------------------- #
+
+
+async def test_create_user_success(fakes) -> None:
+    created = await user_service.create_user(
+        UserCreate(name="Alice", email="alice@example.com", password="S3cureP@ss")
     )
 
-
-async def test_create_user() -> None:
-    record = AsyncMock()
-    assign = AsyncMock()
-    with (
-        patch.object(
-            user_service.user_repository,
-            "get_user_by_email",
-            new=AsyncMock(return_value=None),
-        ),
-        patch.object(
-            user_service.user_repository,
-            "create_user",
-            new=AsyncMock(side_effect=lambda user: user),
-        ),
-        patch.object(user_service.rbac_repository, "assign_super_admin", new=assign),
-        patch.object(user_service, "hash_password", return_value="hashed"),
-        patch.object(user_service.audit_service, "record", new=record),
-    ):
-        created = await user_service.create_user(
-            UserCreate(name="Alice", email="alice@example.com", password="S3cureP@ss")
-        )
     assert created.email == "alice@example.com"
     assert created.username == "Alice"
     assert created.hashed_password == "hashed"
-    assign.assert_awaited_once_with(created.id)
-    record.assert_awaited_once_with(
+    assert fakes.created == [created]
+    fakes.audit.assert_awaited_once_with(
         action=AuditAction.USER_CREATE,
         resource_type=AuditResourceType.USER,
         resource_id=str(created.id),
@@ -55,224 +50,156 @@ async def test_create_user() -> None:
     )
 
 
-async def test_create_user_duplicate_email() -> None:
-    with patch.object(
-        user_service.user_repository,
-        "get_user_by_email",
-        new=AsyncMock(return_value=_user()),
-    ):
-        with pytest.raises(AppError):
-            await user_service.create_user(
-                UserCreate(name="Alice", email="alice@example.com", password="S3cureP@ss")
-            )
+async def test_create_user_success_assigns_super_admin(fakes, monkeypatch) -> None:
+    rbac = FakeRbacRepository()
+    monkeypatch.setattr(user_service, "rbac_repository", rbac)
+
+    created = await user_service.create_user(
+        UserCreate(name="Alice", email="alice@example.com", password="S3cureP@ss")
+    )
+
+    assert rbac.assigned == [created.id]
 
 
-async def test_get_user_not_found() -> None:
-    with patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=None)):
-        with pytest.raises(AppError):
-            await user_service.get_user(uuid.uuid4())
+async def test_create_user_failure_duplicate_email(fakes) -> None:
+    fakes.email_owner = _user()
+
+    with pytest.raises(EmailExistsError):
+        await user_service.create_user(
+            UserCreate(name="Alice", email="alice@example.com", password="S3cureP@ss")
+        )
 
 
-async def test_get_user_found() -> None:
-    user = _user()
-    with patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)):
-        result = await user_service.get_user(user.id)
-    assert result.id == user.id
+# --------------------------------------------------------------------------- #
+# get_user / list_users
+# --------------------------------------------------------------------------- #
 
 
-async def test_list_users() -> None:
-    with patch.object(
-        user_service.user_repository, "list_users", new=AsyncMock(return_value=([], 0))
-    ):
-        users, total = await user_service.list_users(page=1, limit=20)
+async def test_get_user_success(fakes) -> None:
+    result = await user_service.get_user(fakes.user.id)
+    assert result is fakes.user
+
+
+async def test_get_user_failure_not_found(fakes) -> None:
+    fakes.user = None
+
+    with pytest.raises(UserNotFoundError):
+        await user_service.get_user(uuid.uuid4())
+
+
+async def test_list_users_success_empty(fakes) -> None:
+    users, total = await user_service.list_users(page=1, limit=20)
     assert users == []
     assert total == 0
 
 
-async def test_update_user_applies_fields() -> None:
-    user = _user()
-    record = AsyncMock()
+# --------------------------------------------------------------------------- #
+# update_user
+# --------------------------------------------------------------------------- #
 
-    async def _apply(user, data):
-        for key, value in data.items():
-            setattr(user, key, value)
-        return user
 
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "get_user_by_email",
-            new=AsyncMock(return_value=None),
-        ),
-        patch.object(
-            user_service.user_repository, "update_user", new=AsyncMock(side_effect=_apply)
-        ),
-        patch.object(user_service.audit_service, "record", new=record),
-    ):
-        result = await user_service.update_user(user_id=user.id, data=UserUpdate(name="Bob"))
+async def test_update_user_success_applies_fields(fakes) -> None:
+    result = await user_service.update_user(user_id=fakes.user.id, data=UserUpdate(name="Bob"))
+
     assert result.username == "Bob"
-    record.assert_awaited_once_with(
+    fakes.audit.assert_awaited_once_with(
         action=AuditAction.USER_UPDATE,
         resource_type=AuditResourceType.USER,
-        resource_id=str(user.id),
+        resource_id=str(fakes.user.id),
         details={"name": "Bob"},
     )
 
 
-async def test_update_user_email_change() -> None:
-    user = _user()
-    record = AsyncMock()
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "get_user_by_email",
-            new=AsyncMock(return_value=None),
-        ),
-        patch.object(
-            user_service.user_repository,
-            "update_user",
-            new=AsyncMock(side_effect=lambda user, data: user),
-        ),
-        patch.object(user_service.audit_service, "record", new=record),
-    ):
-        result = await user_service.update_user(
-            user_id=user.id, data=UserUpdate(email="new@example.com")
+async def test_update_user_success_email_change(fakes) -> None:
+    result = await user_service.update_user(
+        user_id=fakes.user.id, data=UserUpdate(email="new@example.com")
+    )
+    assert result is fakes.user
+    assert result.email == "new@example.com"
+
+
+async def test_update_user_failure_email_taken(fakes) -> None:
+    fakes.email_owner = _user(email="other@example.com")
+
+    with pytest.raises(EmailExistsError):
+        await user_service.update_user(
+            user_id=fakes.user.id, data=UserUpdate(email="other@example.com")
         )
-    assert result is user
 
 
-async def test_update_user_deactivate_last_active_raises() -> None:
-    user = _user()
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "count_active_admins",
-            new=AsyncMock(return_value=0),
-        ),
-    ):
-        with pytest.raises(LastAdminError):
-            await user_service.update_user(user_id=user.id, data=UserUpdate(status=Status.INACTIVE))
+async def test_update_user_failure_deactivate_last_active(fakes) -> None:
+    fakes.active_count = 0
 
-
-async def test_update_user_deactivate_clears_session() -> None:
-    user = _user()
-    captured = {}
-
-    async def _apply(user, data):
-        captured.update(data)
-        return user
-
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "count_active_admins",
-            new=AsyncMock(return_value=1),
-        ),
-        patch.object(
-            user_service.user_repository, "update_user", new=AsyncMock(side_effect=_apply)
-        ),
-        patch.object(user_service.audit_service, "record", new=AsyncMock()),
-    ):
-        await user_service.update_user(user_id=user.id, data=UserUpdate(status=Status.INACTIVE))
-    assert captured["status"] is Status.INACTIVE
-    assert captured["current_refresh_jti"] is None
-
-
-async def test_replace_user() -> None:
-    user = _user()
-    record = AsyncMock()
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "get_user_by_email",
-            new=AsyncMock(return_value=None),
-        ),
-        patch.object(user_service, "hash_password", return_value="hashed"),
-        patch.object(
-            user_service.user_repository,
-            "update_user",
-            new=AsyncMock(side_effect=lambda user, data: user),
-        ),
-        patch.object(user_service.audit_service, "record", new=record),
-    ):
-        result = await user_service.replace_user(
-            user_id=user.id,
-            data=UserReplace(name="Alice", email="alice@example.com", password="S3cureP@ss"),
+    with pytest.raises(LastAdminError):
+        await user_service.update_user(
+            user_id=fakes.user.id, data=UserUpdate(status=Status.INACTIVE)
         )
-    assert result is user
-    record.assert_awaited_once_with(
+
+
+async def test_update_user_success_deactivate_clears_session(fakes) -> None:
+    await user_service.update_user(user_id=fakes.user.id, data=UserUpdate(status=Status.INACTIVE))
+
+    updated, data = fakes.updated[-1]
+    assert updated is fakes.user
+    assert data["status"] is Status.INACTIVE
+    assert data["current_refresh_jti"] is None
+
+
+# --------------------------------------------------------------------------- #
+# replace_user
+# --------------------------------------------------------------------------- #
+
+
+async def test_replace_user_success(fakes) -> None:
+    result = await user_service.replace_user(
+        user_id=fakes.user.id,
+        data=UserReplace(name="Alice", email="alice@example.com", password="S3cureP@ss"),
+    )
+
+    assert result is fakes.user
+    assert result.username == "Alice"
+    assert result.hashed_password == "hashed"
+    fakes.audit.assert_awaited_once_with(
         action=AuditAction.USER_REPLACE,
         resource_type=AuditResourceType.USER,
-        resource_id=str(user.id),
+        resource_id=str(fakes.user.id),
         details={"email": "alice@example.com", "name": "Alice"},
     )
 
 
-async def test_replace_user_clears_lockout() -> None:
-    user = _user()
-    captured = {}
+async def test_replace_user_success_clears_lockout(fakes) -> None:
+    fakes.user.failed_login_attempts = 4
+    fakes.user.locked_until = None
 
-    async def _apply(user, data):
-        captured.update(data)
-        return user
+    await user_service.replace_user(
+        user_id=fakes.user.id,
+        data=UserReplace(name="Alice", email="alice@example.com", password="S3cureP@ss"),
+    )
 
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "get_user_by_email",
-            new=AsyncMock(return_value=None),
-        ),
-        patch.object(user_service, "hash_password", return_value="hashed"),
-        patch.object(
-            user_service.user_repository, "update_user", new=AsyncMock(side_effect=_apply)
-        ),
-        patch.object(user_service.audit_service, "record", new=AsyncMock()),
-    ):
-        await user_service.replace_user(
-            user_id=user.id,
-            data=UserReplace(name="Alice", email="alice@example.com", password="S3cureP@ss"),
-        )
-    assert captured["username"] == "Alice"
-    assert captured["failed_login_attempts"] == 0
-    assert captured["locked_until"] is None
+    updated, data = fakes.updated[-1]
+    assert data["username"] == "Alice"
+    assert data["failed_login_attempts"] == 0
+    assert data["locked_until"] is None
 
 
-async def test_delete_user() -> None:
-    user = _user()
-    record = AsyncMock()
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "count_active_admins",
-            new=AsyncMock(return_value=1),
-        ),
-        patch.object(user_service.user_repository, "delete_user", new=AsyncMock(return_value=None)),
-        patch.object(user_service.audit_service, "record", new=record),
-    ):
-        await user_service.delete_user(user.id)
-    record.assert_awaited_once_with(
+# --------------------------------------------------------------------------- #
+# delete_user
+# --------------------------------------------------------------------------- #
+
+
+async def test_delete_user_success(fakes) -> None:
+    await user_service.delete_user(fakes.user.id)
+
+    assert fakes.deleted == [fakes.user]
+    fakes.audit.assert_awaited_once_with(
         action=AuditAction.USER_DELETE,
         resource_type=AuditResourceType.USER,
-        resource_id=str(user.id),
+        resource_id=str(fakes.user.id),
     )
 
 
-async def test_delete_user_last_active_raises() -> None:
-    user = _user()
-    with (
-        patch.object(user_service.user_repository, "get_user", new=AsyncMock(return_value=user)),
-        patch.object(
-            user_service.user_repository,
-            "count_active_admins",
-            new=AsyncMock(return_value=0),
-        ),
-    ):
-        with pytest.raises(LastAdminError):
-            await user_service.delete_user(user.id)
+async def test_delete_user_failure_last_active(fakes) -> None:
+    fakes.active_count = 0
+
+    with pytest.raises(LastAdminError):
+        await user_service.delete_user(fakes.user.id)

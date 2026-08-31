@@ -1,6 +1,7 @@
 """Async engine, session factory, and the ``get_db`` request dependency."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -20,11 +21,18 @@ engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def get_db() -> AsyncIterator[None]:
-    """Establish the request-scoped session, then close it after the request."""
+@asynccontextmanager
+async def db_session() -> AsyncGenerator[None, None]:
+    """Standalone session context for requests AND background tasks (no HTTP request)."""
     async with async_session_factory() as session:
         token = current_session.set(session)
         try:
             yield
         finally:
             current_session.reset(token)
+
+
+async def get_db() -> AsyncGenerator[None, None]:
+    """Establish the request-scoped session, then close it after the request."""
+    async with db_session():
+        yield

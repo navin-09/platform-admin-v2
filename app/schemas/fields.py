@@ -1,9 +1,4 @@
-"""Reusable, validated field types shared across request DTOs.
-
-Each type bundles the length/format constraints for one logical field so DTOs
-don't re-declare them (and can't drift from the shared length constants in
-``app/utils/limits.py`` — see ADR-0021).
-"""
+"""Reusable validated field types shared across request DTOs."""
 
 import re
 from functools import partial

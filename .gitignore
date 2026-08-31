@@ -27,3 +27,5 @@ docs/
 CONTEXT.md
 
 AGENTS.md
+exports/
+test.db

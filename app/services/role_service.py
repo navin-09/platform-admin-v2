@@ -47,11 +47,7 @@ def _screen_code_key(code: str) -> tuple[int, str, str]:
 
 
 def _expand_permissions(rows: list[tuple[str, int, bool, bool]]) -> list[str]:
-    """Expand ``(code, sort_order, read, write)`` rows into ordered permission strings.
-
-    ``write`` implies ``read``. Ordered by screen ``sort_order``, then code numerically
-    (``S2`` before ``S10``), then operation (``R`` before ``W``).
-    """
+    """Expand (code, sort_order, read, write) rows into ordered permission strings."""
     expanded: list[tuple[int, tuple[int, str, str], str, str]] = []
     for code, sort_order, read, write in rows:
         key = _screen_code_key(code)
