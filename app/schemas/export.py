@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.models.enums import (
     AuditActionFilter,
@@ -48,15 +48,24 @@ class UsersExportFilters(BaseModel):
 
 class ExportCreate(BaseModel):
     module: Literal["audit", "users"]
-    # Reason is mandatory; StringConstraints strips whitespace BEFORE the length check.
-    reason: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1, max_length=EXPORT_REASON_MAX_LENGTH),
-    ]
-    format: Literal["xlsx"] = "xlsx"
+    # Reason is optional; StringConstraints strips whitespace BEFORE the length check.
+    reason: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, max_length=EXPORT_REASON_MAX_LENGTH),
+        ]
+        | None
+    ) = None
+    format: Literal["csv", "xlsx"] = "xlsx"
     # Omitted filters = export everything for the module; the service resolves
     # the per-module default and rejects a shape that doesn't match ``module``.
     filters: AuditExportFilters | UsersExportFilters | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _blank_reason_is_none(cls, value: str | None) -> str | None:
+        """A blank or whitespace-only reason (after stripping) means "none given"."""
+        return value or None
 
 
 class ExportRead(BaseModel):
@@ -64,7 +73,8 @@ class ExportRead(BaseModel):
 
     id: uuid.UUID
     module: str
-    reason: str
+    reason: str | None
+    format: str = Field(validation_alias="file_format")
     classification: str
     status: str
     row_count: int | None

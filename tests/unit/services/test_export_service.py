@@ -22,6 +22,10 @@ from app.models.enums import ExportStatus
 from app.models.export import Export
 from app.schemas.export import AuditExportFilters, ExportCreate, UsersExportFilters
 from app.services import export_service
+from tests.unit.fakes import FakeAuthRepository, active_admin
+
+ADMIN = active_admin(email="admin@example.com")
+OTHER_ADMIN_ID = uuid.uuid4()
 
 # --------------------------------------------------------------------------- #
 # Test doubles
@@ -84,6 +88,7 @@ def fake_repo(monkeypatch) -> FakeExportRepository:
         repo.spawned.append(export_id)
 
     monkeypatch.setattr(export_service, "export_repository", repo)
+    monkeypatch.setattr(export_service, "auth_repository", FakeAuthRepository(admin=ADMIN))
     monkeypatch.setattr(export_service, "db_session", _noop_db_session)
     monkeypatch.setattr(export_service, "_spawn_generation", _spawn)
     monkeypatch.setattr(export_service.audit_service, "record", repo.audit_record)
@@ -95,7 +100,7 @@ def _export(
     status: str = ExportStatus.READY.value,
     file_path: str | None = "exports/sample.xlsx",
     expires_at: datetime | None = None,
-    created_by: str = "admin@example.com",
+    created_by: uuid.UUID = ADMIN.id,
     module: str = "audit",
     filters: dict[str, object] | None = None,
 ) -> Export:
@@ -148,13 +153,13 @@ async def test_create_export_success(fake_repo) -> None:
     fake_repo.row_count = 5
 
     export = await export_service.create_export(
-        admin_email="admin@example.com",
+        admin=ADMIN,
         data=ExportCreate(module="audit", reason="Quarterly review"),
     )
 
     assert export.status == ExportStatus.PENDING.value
     assert fake_repo.created_kwargs["module"] == "audit"
-    assert fake_repo.created_kwargs["created_by"] == "admin@example.com"
+    assert fake_repo.created_kwargs["created_by"] == ADMIN.id
     assert fake_repo.created_kwargs["reason"] == "Quarterly review"
     assert fake_repo.created_kwargs["classification"] == "Restricted"
     assert fake_repo.spawned == [export.id]
@@ -167,7 +172,7 @@ async def test_create_export_users_module_uses_users_filters(fake_repo) -> None:
     fake_repo.row_count = 1
 
     await export_service.create_export(
-        admin_email="admin@example.com",
+        admin=ADMIN,
         data=ExportCreate(
             module="users",
             reason="User list",
@@ -184,7 +189,7 @@ async def test_create_export_failure_over_max_rows(fake_repo) -> None:
 
     with pytest.raises(ExportTooLargeError):
         await export_service.create_export(
-            admin_email="admin@example.com",
+            admin=ADMIN,
             data=ExportCreate(module="audit", reason="Too big"),
         )
     assert fake_repo.spawned == []  # nothing spawned, nothing created
@@ -203,7 +208,7 @@ async def test_create_export_failure_wrong_filter_shape(fake_repo) -> None:
         {"module": "users", "reason": "r", "filters": {"actor": "x"}}
     )
     with pytest.raises(ValidationError):
-        await export_service.create_export(admin_email="admin@example.com", data=data)
+        await export_service.create_export(admin=ADMIN, data=data)
     assert fake_repo.spawned == []
 
 
@@ -216,9 +221,7 @@ async def test_get_export_status_success(fake_repo) -> None:
     export = _export()
     fake_repo.export = export
 
-    result = await export_service.get_export_status(
-        export_id=export.id, admin_email="admin@example.com"
-    )
+    result = await export_service.get_export_status(export_id=export.id, admin=ADMIN)
     assert result is export
 
 
@@ -226,18 +229,14 @@ async def test_get_export_status_failure_not_found(fake_repo) -> None:
     fake_repo.export = None
 
     with pytest.raises(ExportNotFoundError):
-        await export_service.get_export_status(
-            export_id=uuid.uuid4(), admin_email="admin@example.com"
-        )
+        await export_service.get_export_status(export_id=uuid.uuid4(), admin=ADMIN)
 
 
 async def test_get_export_status_failure_not_owner(fake_repo) -> None:
-    fake_repo.export = _export(created_by="other@example.com")
+    fake_repo.export = _export(created_by=OTHER_ADMIN_ID)
 
     with pytest.raises(PermissionDeniedError):
-        await export_service.get_export_status(
-            export_id=fake_repo.export.id, admin_email="admin@example.com"
-        )
+        await export_service.get_export_status(export_id=fake_repo.export.id, admin=ADMIN)
 
 
 # --------------------------------------------------------------------------- #
@@ -251,12 +250,10 @@ async def test_download_export_success(fake_repo, tmp_path) -> None:
     export = _export(file_path=str(target))
     fake_repo.export = export
 
-    response = await export_service.download_export(
-        export_id=export.id, admin_email="admin@example.com"
-    )
+    response = await export_service.download_export(export_id=export.id, admin=ADMIN)
 
     assert response.path == target
-    assert response.media_type == export_service.XLSX_MEDIA_TYPE
+    assert response.media_type == export_service._MEDIA_TYPES["xlsx"]
     action = fake_repo.audit_record.await_args.kwargs["action"]
     assert action == "export.downloaded"
     assert fake_repo.audit_record.await_args.kwargs["resource_id"] == str(export.id)
@@ -272,9 +269,7 @@ async def test_download_export_success_regenerates_when_file_missing(
     regenerated = _export(file_path=str(regenerated_path))
     monkeypatch.setattr(export_service, "_generate", AsyncMock(return_value=regenerated))
 
-    response = await export_service.download_export(
-        export_id=export.id, admin_email="admin@example.com"
-    )
+    response = await export_service.download_export(export_id=export.id, admin=ADMIN)
 
     assert response.path == regenerated_path
     export_service._generate.assert_awaited_once_with(export.id)
@@ -285,7 +280,7 @@ async def test_download_export_failure_expired(fake_repo) -> None:
     fake_repo.export = export
 
     with pytest.raises(ExportExpiredError):
-        await export_service.download_export(export_id=export.id, admin_email="admin@example.com")
+        await export_service.download_export(export_id=export.id, admin=ADMIN)
     assert export.status == ExportStatus.EXPIRED.value
     assert fake_repo.updated == [export]
 
@@ -294,20 +289,16 @@ async def test_download_export_failure_not_found(fake_repo) -> None:
     fake_repo.export = None
 
     with pytest.raises(ExportNotFoundError):
-        await export_service.download_export(
-            export_id=uuid.uuid4(), admin_email="admin@example.com"
-        )
+        await export_service.download_export(export_id=uuid.uuid4(), admin=ADMIN)
 
 
 async def test_download_export_failure_not_owner(fake_repo, tmp_path) -> None:
     target = tmp_path / "real.xlsx"
     target.write_bytes(b"PK fake xlsx")
-    fake_repo.export = _export(file_path=str(target), created_by="other@example.com")
+    fake_repo.export = _export(file_path=str(target), created_by=OTHER_ADMIN_ID)
 
     with pytest.raises(PermissionDeniedError):
-        await export_service.download_export(
-            export_id=fake_repo.export.id, admin_email="admin@example.com"
-        )
+        await export_service.download_export(export_id=fake_repo.export.id, admin=ADMIN)
 
 
 # --------------------------------------------------------------------------- #
@@ -370,7 +361,7 @@ async def test_create_export_passes_resolved_audit_filters(fake_repo) -> None:
     fake_repo.row_count = 3
 
     await export_service.create_export(
-        admin_email="admin@example.com",
+        admin=ADMIN,
         data=ExportCreate(
             module="audit",
             reason="r",

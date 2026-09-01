@@ -38,6 +38,7 @@ async def test_get_screen_by_code() -> None:
 async def test_create_screen_with_super_admin_grant_commits() -> None:
     db = MagicMock()
     db.add = MagicMock()
+    db.flush = AsyncMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
     screen = _screen()
@@ -45,6 +46,7 @@ async def test_create_screen_with_super_admin_grant_commits() -> None:
         result = await screen_repository.create_screen(screen, super_admin_role_id=uuid.uuid4())
     assert result is screen
     assert db.add.call_count == 2
+    db.flush.assert_awaited_once()
     db.commit.assert_awaited_once()
     db.refresh.assert_awaited_once_with(screen)
 

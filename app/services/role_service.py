@@ -72,9 +72,20 @@ async def _validate_screen_codes(by_code: dict[str, tuple[bool, bool]]) -> None:
         )
 
 
-def _permission_rows(role_id: uuid.UUID, by_code: dict[str, tuple[bool, bool]]) -> list[RoleScreen]:
+def _permission_rows(
+    role_id: uuid.UUID,
+    by_code: dict[str, tuple[bool, bool]],
+    actor_id: uuid.UUID | None = None,
+) -> list[RoleScreen]:
     return [
-        RoleScreen(role_id=role_id, screen_code=code, read=read, write=write)
+        RoleScreen(
+            role_id=role_id,
+            screen_code=code,
+            read=read,
+            write=write,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
         for code, (read, write) in by_code.items()
     ]
 
@@ -86,6 +97,8 @@ def _to_read(role: Role, rows: list[tuple[str, int, bool, bool]]) -> RoleRead:
         description=role.description,
         status=role.status,
         permissions=_expand_permissions(rows),
+        created_by=role.created_by,
+        updated_by=role.updated_by,
         created_at=role.created_at,
         updated_at=role.updated_at,
     )
@@ -102,12 +115,20 @@ async def _read_role(role: Role) -> RoleRead:
     return _to_read(role, await role_repository.permissions_for_role(role.id))
 
 
-async def create_role(data: RoleCreate) -> RoleRead:
+async def create_role(data: RoleCreate, actor_id: uuid.UUID | None = None) -> RoleRead:
     await _ensure_name_available(data.name)
     by_code = _normalize_permissions(data.permissions)
     await _validate_screen_codes(by_code)
-    role = Role(name=data.name, description=data.description, status=data.status)
-    role = await role_repository.create_role(role, _permission_rows(role.id, by_code))
+    role = Role(
+        name=data.name,
+        description=data.description,
+        status=data.status,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    role = await role_repository.create_role(
+        role, _permission_rows(role.id, by_code, actor_id)
+    )
     rows = await role_repository.permissions_for_role(role.id)
     await audit_service.record(
         action=AuditAction.ROLE_CREATE,
@@ -135,7 +156,9 @@ async def get_role(role_id: uuid.UUID) -> RoleRead:
     return await _read_role(await _get_role(role_id))
 
 
-async def update_role(role_id: uuid.UUID, data: RoleUpdate) -> RoleRead:
+async def update_role(
+    role_id: uuid.UUID, data: RoleUpdate, actor_id: uuid.UUID | None = None
+) -> RoleRead:
     role = await _get_role(role_id)
     payload = data.model_dump(exclude_unset=True, exclude_none=True)
     permissions = payload.pop("permissions", None)
@@ -152,7 +175,9 @@ async def update_role(role_id: uuid.UUID, data: RoleUpdate) -> RoleRead:
     if permissions is not None:
         by_code = _normalize_permissions(permissions)
         await _validate_screen_codes(by_code)
-        rows = _permission_rows(role_id, by_code)
+        rows = _permission_rows(role_id, by_code, actor_id)
+    if actor_id is not None:
+        payload["updated_by"] = actor_id
     role = await role_repository.update_role(role=role, data=payload, permissions=rows)
     details = {
         key: value
@@ -174,10 +199,12 @@ async def update_role(role_id: uuid.UUID, data: RoleUpdate) -> RoleRead:
     return await _read_role(role)
 
 
-async def delete_role(role_id: uuid.UUID) -> None:
+async def delete_role(role_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> None:
     role = await _get_role(role_id)
     if role.name == SUPER_ADMIN_ROLE_NAME:
         raise ProtectedResourceError()
+    if actor_id is not None:
+        role.updated_by = actor_id
     await role_repository.delete_role(role)
     await audit_service.record(
         action=AuditAction.ROLE_DELETE,

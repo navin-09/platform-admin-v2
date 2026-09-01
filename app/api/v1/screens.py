@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import require_permission
+from app.api.deps import get_current_admin, require_permission
 from app.core.constants import (
     DEFAULT_PAGE,
     DEFAULT_PAGE_SIZE,
@@ -13,6 +13,7 @@ from app.core.constants import (
     MIN_PAGE_SIZE,
 )
 from app.models.enums import PermissionName, Status, StatusFilter, resolve_filter
+from app.models.platform_admin import PlatformAdmin
 from app.schemas.common import ApiResponse, ListData, build_list_data
 from app.schemas.screen import (
     CODE_CREATED,
@@ -38,10 +39,11 @@ router = APIRouter(tags=["Screens"])
 @router.post("", response_model=ApiResponse[ScreenRead], status_code=201, summary="Create a screen")
 async def create_screen(
     data: ScreenCreate,
+    admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.SCREENS_WRITE)),
 ) -> ApiResponse[ScreenRead]:
     """Create a new screen; the code is auto-generated when omitted."""
-    screen = await screen_service.create_screen(data)
+    screen = await screen_service.create_screen(data, actor_id=admin.id)
     return ApiResponse(code=CODE_CREATED, message=MSG_CREATED, data=screen)
 
 
@@ -85,18 +87,20 @@ async def get_screen(
 async def update_screen(
     screen_id: uuid.UUID,
     data: ScreenUpdate,
+    admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.SCREENS_WRITE)),
 ) -> ApiResponse[ScreenRead]:
     """Partially update a screen's name, sort order, or status; the code is immutable."""
-    screen = await screen_service.update_screen(screen_id=screen_id, data=data)
+    screen = await screen_service.update_screen(screen_id=screen_id, data=data, actor_id=admin.id)
     return ApiResponse(code=CODE_UPDATED, message=MSG_UPDATED, data=screen)
 
 
 @router.delete("/{screen_id}", response_model=ApiResponse[None], summary="Delete a screen")
 async def delete_screen(
     screen_id: uuid.UUID,
+    admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.SCREENS_WRITE)),
 ) -> ApiResponse[None]:
     """Soft-delete a screen by id (marks it inactive)."""
-    await screen_service.delete_screen(screen_id)
+    await screen_service.delete_screen(screen_id, actor_id=admin.id)
     return ApiResponse(code=CODE_DELETED, message=MSG_DELETED, data=None)

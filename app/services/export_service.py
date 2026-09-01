@@ -30,17 +30,21 @@ from app.models.enums import (
     Status,
 )
 from app.models.export import Export
-from app.repositories import export_repository
+from app.models.platform_admin import PlatformAdmin
+from app.repositories import auth_repository, export_repository
 from app.schemas.export import AuditExportFilters, ExportCreate, UsersExportFilters
-from app.services import audit_service, xlsx_writer
+from app.services import audit_service, csv_writer, xlsx_writer
 from app.utils.time import utcnow
 
 logger = logging.getLogger("app.services.export")
 
-XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_MEDIA_TYPES = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv",
+}
 
 
-async def create_export(*, admin_email: str, data: ExportCreate) -> Export:
+async def create_export(*, admin: PlatformAdmin, data: ExportCreate) -> Export:
     """Validate, count, persist, and kick off background generation."""
     spec = _spec(data.module)
     filters_model = _filters_for_module(data)
@@ -58,12 +62,12 @@ async def create_export(*, admin_email: str, data: ExportCreate) -> Export:
         file_format=data.format,
         classification=spec.classification,
         filters=filters,
-        created_by=admin_email,
+        created_by=admin.id,
     )
     _spawn_generation(export.id)
 
     await audit_service.record(
-        actor=admin_email,
+        actor=admin.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.EXPORT_GENERATED,
         resource_type=AuditResourceType.EXPORT,
@@ -78,14 +82,14 @@ async def create_export(*, admin_email: str, data: ExportCreate) -> Export:
     return export
 
 
-async def get_export_status(*, export_id: uuid.UUID, admin_email: str) -> Export:
+async def get_export_status(*, export_id: uuid.UUID, admin: PlatformAdmin) -> Export:
     """Status of one export, owner-checked (single-user links)."""
-    return await _owned_export(export_id, admin_email)
+    return await _owned_export(export_id, admin)
 
 
-async def download_export(*, export_id: uuid.UUID, admin_email: str) -> FileResponse:
+async def download_export(*, export_id: uuid.UUID, admin: PlatformAdmin) -> FileResponse:
     """Serve the file: owner check, 24h expiry, lazy regeneration, audited."""
-    export = await _owned_export(export_id, admin_email)
+    export = await _owned_export(export_id, admin)
 
     if export.expires_at is not None and export.expires_at <= utcnow():
         export.status = ExportStatus.EXPIRED.value
@@ -100,7 +104,7 @@ async def download_export(*, export_id: uuid.UUID, admin_email: str) -> FileResp
         raise ExportNotFoundError()
 
     await audit_service.record(
-        actor=admin_email,
+        actor=admin.email,
         actor_type=ActorType.ADMIN.value,
         action=AuditAction.EXPORT_DOWNLOADED,
         resource_type=AuditResourceType.EXPORT,
@@ -112,7 +116,7 @@ async def download_export(*, export_id: uuid.UUID, admin_email: str) -> FileResp
             "classification": export.classification,
         },
     )
-    return FileResponse(path, media_type=XLSX_MEDIA_TYPE, filename=path.name)
+    return FileResponse(path, media_type=_MEDIA_TYPES[export.file_format], filename=path.name)
 
 
 def _spawn_generation(export_id: uuid.UUID) -> None:
@@ -139,7 +143,7 @@ async def _generate_task(export_id: uuid.UUID) -> None:
 
 
 async def _generate(export_id: uuid.UUID) -> Export:
-    """Stream matching rows into an xlsx file and mark the export READY."""
+    """Stream matching rows into an xlsx/csv file and mark the export READY."""
     export = await export_repository.get_export(export_id)
     if export is None:
         raise ExportNotFoundError()
@@ -149,7 +153,7 @@ async def _generate(export_id: uuid.UUID) -> Export:
     metadata = {
         "Export ID": str(export.id),
         "Module": spec.label,
-        "Exported By": export.created_by,
+        "Exported By": await _exported_by(export.created_by),
         "Reason": export.reason,
         "Classification": spec.classification,
         "Applied Filters": json.dumps(export.filters, default=str),
@@ -158,14 +162,22 @@ async def _generate(export_id: uuid.UUID) -> Export:
         "Max Records Per File": settings.export_max_rows,
     }
 
-    row_count = await xlsx_writer.write_export_xlsx(
-        path,
-        metadata=metadata,
-        metadata_sheet="Metadata",
-        data_sheet=spec.sheet_name,
-        headers=[header for _, header in spec.columns],
-        rows=_row_stream(spec, export.filters),
-    )
+    if export.file_format == "csv":
+        row_count = await csv_writer.write_export_csv(
+            path,
+            metadata=metadata,
+            headers=[header for _, header in spec.columns],
+            rows=_row_stream(spec, export.filters),
+        )
+    else:
+        row_count = await xlsx_writer.write_export_xlsx(
+            path,
+            metadata=metadata,
+            metadata_sheet="Metadata",
+            data_sheet=spec.sheet_name,
+            headers=[header for _, header in spec.columns],
+            rows=_row_stream(spec, export.filters),
+        )
 
     export.status = ExportStatus.READY.value
     export.row_count = row_count
@@ -223,7 +235,15 @@ def _extract_row(entry: object, spec: ExportSpec) -> list[Any]:
 
 def _filename(spec: ExportSpec, export: Export) -> str:
     stamp = export.created_at.strftime("%Y%m%d_%H%M%S")
-    return f"{spec.filename_prefix}_{stamp}_{export.id.hex[:8]}.xlsx"
+    return f"{spec.filename_prefix}_{stamp}_{export.id.hex[:8]}.{export.file_format}"
+
+
+async def _exported_by(admin_id: uuid.UUID | None) -> str:
+    """Resolve the creating admin's email for the human-readable metadata sheet."""
+    if admin_id is None:
+        return "unknown"
+    admin = await auth_repository.get_admin_by_id(admin_id)
+    return admin.email if admin is not None else str(admin_id)
 
 
 def _filters_for_module(data: ExportCreate) -> AuditExportFilters | UsersExportFilters:
@@ -251,11 +271,11 @@ def _spec(module: str) -> ExportSpec:
     return spec
 
 
-async def _owned_export(export_id: uuid.UUID, admin_email: str) -> Export:
+async def _owned_export(export_id: uuid.UUID, admin: PlatformAdmin) -> Export:
     export = await export_repository.get_export(export_id)
     if export is None:
         raise ExportNotFoundError()
-    if export.created_by != admin_email:
+    if export.created_by != admin.id:
         raise PermissionDeniedError()
     return export
 

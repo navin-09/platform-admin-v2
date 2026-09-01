@@ -33,8 +33,8 @@ async def create_export(
     admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.AUDIT_READ)),
 ) -> ApiResponse[ExportRead]:
-    """Create an export of audit logs matching the given filters (reason mandatory)."""
-    export = await export_service.create_export(admin_email=admin.email, data=data)
+    """Create a csv/xlsx export of audit logs or users matching the given filters."""
+    export = await export_service.create_export(admin=admin, data=data)
     return ApiResponse(
         code=CODE_CREATED,
         message=MSG_CREATED,
@@ -53,7 +53,7 @@ async def get_export(
     _: None = Depends(require_permission(PermissionName.AUDIT_READ)),
 ) -> ApiResponse[ExportRead]:
     """Poll the export status (pending → ready; ready carries row count + expiry)."""
-    export = await export_service.get_export_status(export_id=export_id, admin_email=admin.email)
+    export = await export_service.get_export_status(export_id=export_id, admin=admin)
     return ApiResponse(
         code=CODE_FETCHED,
         message=MSG_FETCHED,
@@ -64,12 +64,12 @@ async def get_export(
 @router.get(
     "/exports/{export_id}/download",
     response_model=None,
-    summary="Download an export (.xlsx, 24-hour single-user link)",
+    summary="Download an export (.csv or .xlsx, 24-hour single-user link)",
 )
 async def download_export(
     export_id: uuid.UUID,
     admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.AUDIT_READ)),
 ) -> FileResponse:
-    """Serve the generated xlsx (owner-only, expires 24h after generation)."""
-    return await export_service.download_export(export_id=export_id, admin_email=admin.email)
+    """Serve the generated file (owner-only, expires 24h after generation)."""
+    return await export_service.download_export(export_id=export_id, admin=admin)

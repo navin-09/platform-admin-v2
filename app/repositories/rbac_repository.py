@@ -48,7 +48,7 @@ async def role_names_for_admin(admin_id: uuid.UUID) -> set[str]:
 SUPER_ADMIN_ROLE_NAME = "super_admin"
 
 
-async def assign_super_admin(admin_id: uuid.UUID) -> None:
+async def assign_super_admin(admin_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> None:
     """Ensure the admin holds the super_admin role (no-op if absent or already assigned)."""
     db = get_session()
     role = (
@@ -65,5 +65,12 @@ async def assign_super_admin(admin_id: uuid.UUID) -> None:
         )
     ).scalar_one_or_none()
     if existing is None:
-        db.add(PlatformAdminRole(platform_admin_id=admin_id, role_id=role.id))
+        db.add(
+            PlatformAdminRole(
+                platform_admin_id=admin_id,
+                role_id=role.id,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
         await db.commit()

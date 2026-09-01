@@ -19,11 +19,11 @@ from app.models.platform_admin import PlatformAdmin
 async def create_export(
     *,
     module: str,
-    reason: str,
+    reason: str | None,
     file_format: str,
     classification: str,
     filters: dict[str, object] | None,
-    created_by: str,
+    created_by: uuid.UUID,
 ) -> Export:
     db = get_session()
     entry = Export(
@@ -33,6 +33,7 @@ async def create_export(
         classification=classification,
         filters=filters,
         created_by=created_by,
+        updated_by=created_by,
     )
     db.add(entry)
     await db.commit()

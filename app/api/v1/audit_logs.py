@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_current_admin, require_permission
+from app.api.deps import get_current_admin, require_super_admin
 from app.core.constants import (
     DEFAULT_PAGE,
     DEFAULT_PAGE_SIZE,
@@ -17,7 +17,6 @@ from app.models.enums import (
     AuditActorTypeFilter,
     AuditResourceType,
     AuditResourceTypeFilter,
-    PermissionName,
     resolve_filter,
 )
 from app.models.platform_admin import PlatformAdmin
@@ -54,10 +53,10 @@ async def list_audit_logs(
         None, description="Filter audit logs created on or before this date (YYYY-MM-DD)"
     ),
     admin: PlatformAdmin = Depends(get_current_admin),
-    _: None = Depends(require_permission(PermissionName.AUDIT_READ)),
+    _: None = Depends(require_super_admin),
 ) -> ApiResponse[ListData[AuditLogRead]]:
-    """List audit log entries, paginated and filterable by actor, action,
-    resource type, or date range.
+    """List audit log entries (super_admin only), paginated and filterable by
+    actor, action, resource type, or date range.
     """
     entries, total = await audit_service.list_audit_logs(
         page=page,
