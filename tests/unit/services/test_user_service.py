@@ -1,7 +1,7 @@
 """Platform Admin (Users API) service unit tests — faked collaborators."""
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -93,27 +93,28 @@ async def test_list_users_success_empty(fakes) -> None:
     assert total == 0
 
 
-async def test_list_users_with_date_filters() -> None:
+async def test_list_users_with_date_filters(fakes) -> None:
     from datetime import date
 
     from_date = date(2026, 8, 1)
     to_date = date(2026, 8, 31)
-    with patch.object(
-        user_service.user_repository, "list_users", new=AsyncMock(return_value=([], 0))
-    ) as mock_list:
-        users, total = await user_service.list_users(
-            page=1, limit=20, from_date=from_date, to_date=to_date
-        )
+
+    users, total = await user_service.list_users(
+        page=1, limit=20, from_date=from_date, to_date=to_date
+    )
+
     assert users == []
     assert total == 0
-    mock_list.assert_awaited_once_with(
-        page=1,
-        limit=20,
-        search=None,
-        status=None,
-        from_date=from_date,
-        to_date=to_date,
-    )
+    assert fakes.list_calls == [
+        {
+            "page": 1,
+            "limit": 20,
+            "search": None,
+            "status": None,
+            "from_date": from_date,
+            "to_date": to_date,
+        }
+    ]
 
 
 # --------------------------------------------------------------------------- #
