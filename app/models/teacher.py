@@ -1,4 +1,4 @@
-"""Advisor table — a department reference."""
+"""Teacher table — a department reference."""
 
 import uuid
 from datetime import datetime
@@ -8,15 +8,15 @@ from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
 from app.models.enums import Status, enum_values
-from app.utils.limits import ADVISOR_NAME_MAX_LENGTH, OFFICE_ROOM_MAX_LENGTH
+from app.utils.limits import OFFICE_ROOM_MAX_LENGTH, TEACHER_NAME_MAX_LENGTH
 from app.utils.time import utcnow
 
 
-class Advisor(SQLModel, table=True):
-    __tablename__ = "advisors"
+class Teacher(SQLModel, table=True):
+    __tablename__ = "teachers"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    advisor_name: str = Field(max_length=ADVISOR_NAME_MAX_LENGTH)
+    teacher_name: str = Field(max_length=TEACHER_NAME_MAX_LENGTH)
     office_room: str | None = Field(default=None, max_length=OFFICE_ROOM_MAX_LENGTH)
     department_id: uuid.UUID | None = Field(default=None, foreign_key="departments.id")
     status: Status = Field(

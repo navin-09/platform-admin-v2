@@ -37,7 +37,7 @@ class Student(SQLModel, table=True):
     )
     address_id: uuid.UUID | None = Field(default=None, foreign_key="addresses.id")
     department_id: uuid.UUID | None = Field(default=None, foreign_key="departments.id")
-    advisor_id: uuid.UUID | None = Field(default=None, foreign_key="advisors.id")
+    teacher_id: uuid.UUID | None = Field(default=None, foreign_key="teachers.id")
     program_id: uuid.UUID | None = Field(default=None, foreign_key="programs.id")
     mentor_id: uuid.UUID | None = Field(default=None, foreign_key="students.id")
     status: Status = Field(

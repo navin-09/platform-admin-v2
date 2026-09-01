@@ -42,6 +42,9 @@ class AuditAction(StrEnum):
     ACCESS_DENIED = "access.denied"
     EXPORT_GENERATED = "export.generated"
     EXPORT_DOWNLOADED = "export.downloaded"
+    MASTER_DATA_CREATE = "master_data.create"
+    MASTER_DATA_UPDATE = "master_data.update"
+    MASTER_DATA_DELETE = "master_data.delete"
 
 
 class AuditResourceType(StrEnum):

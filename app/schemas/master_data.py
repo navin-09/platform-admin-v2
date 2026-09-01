@@ -1,0 +1,12 @@
+"""Shared result codes and messages for the generic master-data CRUD engine."""
+
+CODE_LISTED = "S_200_MD_LIST_OK"
+MSG_LISTED = "Records fetched successfully"
+CODE_FETCHED = "S_200_MD_FETCH_OK"
+MSG_FETCHED = "Record fetched successfully"
+CODE_CREATED = "S_201_MD_CREATED"
+MSG_CREATED = "Record created successfully"
+CODE_UPDATED = "S_200_MD_UPDATED"
+MSG_UPDATED = "Record updated successfully"
+CODE_DELETED = "S_200_MD_DELETED"
+MSG_DELETED = "Record deleted successfully"

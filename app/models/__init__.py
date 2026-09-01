@@ -1,5 +1,4 @@
 from app.models.address import Address
-from app.models.advisor import Advisor
 from app.models.audit_log import AuditLog
 from app.models.country import Country
 from app.models.course import Course
@@ -15,11 +14,11 @@ from app.models.role import Role
 from app.models.role_screen import RoleScreen
 from app.models.screen import Screen
 from app.models.student import Student
+from app.models.teacher import Teacher
 from app.models.user import User
 
 __all__ = [
     "Address",
-    "Advisor",
     "AuditLog",
     "Country",
     "Course",
@@ -35,5 +34,6 @@ __all__ = [
     "RoleScreen",
     "Screen",
     "Student",
+    "Teacher",
     "User",
 ]

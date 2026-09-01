@@ -81,6 +81,14 @@ class ScreenNotFoundError(AppError):
     message = "Screen not found"
 
 
+class MasterDataNotFoundError(AppError):
+    """Raised when a master-data record does not exist."""
+
+    status_code = 404
+    code = "E_404_MD_NOT_FOUND"
+    message = "Record not found"
+
+
 class ConflictError(AppError):
     """Raised when a request violates a data constraint."""
 

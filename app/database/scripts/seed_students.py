@@ -10,13 +10,13 @@ from sqlmodel import col
 
 from app.database.database import async_session_factory
 from app.models.address import Address
-from app.models.advisor import Advisor
 from app.models.country import Country
 from app.models.course import Course
 from app.models.department import Department
 from app.models.enrollment import Enrollment
 from app.models.program import Program
 from app.models.student import Student
+from app.models.teacher import Teacher
 
 COUNTRIES = [("India", "IN"), ("United States", "US"), ("United Kingdom", "GB")]
 
@@ -34,7 +34,7 @@ DEPARTMENTS = [
     ("Physics", "Newton Hall"),
 ]
 
-ADVISORS = [
+TEACHERS = [
     ("Dr. Sarah Chen", "Rm 204", "Computer Science"),
     ("Dr. James Patel", "Rm 118", "Mathematics"),
     ("Dr. Maria Gomez", "Rm 310", "Physics"),
@@ -54,7 +54,7 @@ COURSES = [
     ("Calculus II", 4, "Mathematics"),
 ]
 
-# (first, last, email, enrollment_date, gpa, address_index, department, advisor, program)
+# (first, last, email, enrollment_date, gpa, address_index, department, teacher, program)
 STUDENTS = [
     (
         "Aditi",
@@ -152,12 +152,12 @@ async def _department(db: AsyncSession, name: str, building: str | None) -> Depa
     return row
 
 
-async def _advisor(db: AsyncSession, name: str, room: str | None, dept: Department) -> Advisor:
+async def _teacher(db: AsyncSession, name: str, room: str | None, dept: Department) -> Teacher:
     row = (
-        await db.execute(select(Advisor).where(col(Advisor.advisor_name) == name))
+        await db.execute(select(Teacher).where(col(Teacher.teacher_name) == name))
     ).scalar_one_or_none()
     if row is None:
-        row = Advisor(advisor_name=name, office_room=room, department_id=dept.id)
+        row = Teacher(teacher_name=name, office_room=room, department_id=dept.id)
         db.add(row)
         await db.flush()
     return row
@@ -221,7 +221,7 @@ async def _student(
     gpa: Decimal | None,
     address: Address,
     dept: Department,
-    advisor: Advisor,
+    teacher: Teacher,
     program: Program,
 ) -> Student:
     row = (
@@ -236,7 +236,7 @@ async def _student(
             gpa=gpa,
             address_id=address.id,
             department_id=dept.id,
-            advisor_id=advisor.id,
+            teacher_id=teacher.id,
             program_id=program.id,
         )
         db.add(row)
@@ -270,8 +270,8 @@ async def seed() -> None:
             await _address(db, s, c, st, p, countries[cc]) for s, c, st, p, cc in ADDRESSES
         ]
         departments = {name: await _department(db, name, b) for name, b in DEPARTMENTS}
-        advisors = {
-            name: await _advisor(db, name, room, departments[dept]) for name, room, dept in ADVISORS
+        teachers = {
+            name: await _teacher(db, name, room, departments[dept]) for name, room, dept in TEACHERS
         }
         programs = {
             name: await _program(db, name, degree, departments[dept])
@@ -283,7 +283,7 @@ async def seed() -> None:
         }
 
         students: dict[str, Student] = {}
-        for first, last, email, enrolled, gpa, addr_idx, dept, advisor, program in STUDENTS:
+        for first, last, email, enrolled, gpa, addr_idx, dept, teacher, program in STUDENTS:
             students[email] = await _student(
                 db,
                 first=first,
@@ -293,7 +293,7 @@ async def seed() -> None:
                 gpa=gpa,
                 address=addresses[addr_idx],
                 dept=departments[dept],
-                advisor=advisors[advisor],
+                teacher=teachers[teacher],
                 program=programs[program],
             )
 
