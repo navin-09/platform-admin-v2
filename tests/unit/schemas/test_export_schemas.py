@@ -26,8 +26,12 @@ async def test_module_failure_unknown_value() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# reason (mandatory)
+# reason (optional)
 # --------------------------------------------------------------------------- #
+
+
+async def test_reason_success_omitted_defaults_to_none() -> None:
+    assert ExportCreate(module="audit").reason is None
 
 
 async def test_reason_success_strips_surrounding_whitespace() -> None:
@@ -35,15 +39,12 @@ async def test_reason_success_strips_surrounding_whitespace() -> None:
     assert data.reason == "compliance review"
 
 
-async def test_reason_failure_blank() -> None:
-    with pytest.raises(ValidationError):
-        ExportCreate(module="audit", reason="")
+async def test_reason_success_blank_becomes_none() -> None:
+    assert ExportCreate(module="audit", reason="").reason is None
 
 
-async def test_reason_failure_whitespace_only() -> None:
-    """Three spaces are not a reason — the export reason is mandatory."""
-    with pytest.raises(ValidationError):
-        ExportCreate(module="audit", reason="   ")
+async def test_reason_success_whitespace_only_becomes_none() -> None:
+    assert ExportCreate(module="audit", reason="   ").reason is None
 
 
 async def test_reason_failure_too_long() -> None:
@@ -60,9 +61,13 @@ async def test_format_success_defaults_to_xlsx() -> None:
     assert ExportCreate(module="audit", reason="r").format == "xlsx"
 
 
+async def test_format_success_accepts_csv() -> None:
+    assert ExportCreate(module="audit", reason="r", format="csv").format == "csv"
+
+
 async def test_format_failure_unsupported() -> None:
     with pytest.raises(ValidationError):
-        ExportCreate(module="audit", reason="r", format="csv")
+        ExportCreate(module="audit", reason="r", format="pdf")
 
 
 # --------------------------------------------------------------------------- #

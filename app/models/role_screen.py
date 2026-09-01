@@ -18,4 +18,6 @@ class RoleScreen(SQLModel, table=True):
     )
     read: bool = Field(default=False)
     write: bool = Field(default=False)
+    created_by: uuid.UUID | None = Field(default=None, foreign_key="platform_admins.id")
+    updated_by: uuid.UUID | None = Field(default=None, foreign_key="platform_admins.id")
     created_at: datetime = Field(default_factory=utcnow)

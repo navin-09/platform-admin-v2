@@ -43,5 +43,7 @@ class RoleRead(BaseModel):
     description: str | None
     status: Status
     permissions: list[str]
+    created_by: uuid.UUID | None
+    updated_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime

@@ -25,5 +25,7 @@ class Role(SQLModel, table=True):
             nullable=False,
         ),
     )
+    created_by: uuid.UUID | None = Field(default=None, foreign_key="platform_admins.id")
+    updated_by: uuid.UUID | None = Field(default=None, foreign_key="platform_admins.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow, sa_column_kwargs={"onupdate": func.now()})

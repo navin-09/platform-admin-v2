@@ -50,5 +50,7 @@ class UserRead(BaseModel):
     name: str = Field(validation_alias="username")
     email: EmailStr
     status: Status
+    created_by: uuid.UUID | None
+    updated_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime

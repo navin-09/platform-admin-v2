@@ -3,7 +3,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import require_permission
+from app.api.deps import get_current_admin, require_permission
 from app.core.constants import (
     DEFAULT_PAGE,
     DEFAULT_PAGE_SIZE,
@@ -17,6 +17,7 @@ from app.models.enums import (
     StatusFilter,
     resolve_filter,
 )
+from app.models.platform_admin import PlatformAdmin
 from app.schemas.common import ApiResponse, ListData, build_list_data
 from app.schemas.user import (
     CODE_CREATED,
@@ -43,10 +44,11 @@ router = APIRouter(tags=["Users"])
 @router.post("", response_model=ApiResponse[UserRead], status_code=201, summary="Create a user")
 async def create_user(
     data: UserCreate,
+    admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.USERS_WRITE)),
 ) -> ApiResponse[UserRead]:
     """Create a new user with a name, email, and password."""
-    user = await user_service.create_user(data)
+    user = await user_service.create_user(data, actor_id=admin.id)
     return ApiResponse(code=CODE_CREATED, message=MSG_CREATED, data=user)
 
 
@@ -96,10 +98,11 @@ async def get_user(
 async def replace_user(
     user_id: uuid.UUID,
     data: UserReplace,
+    admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.USERS_WRITE)),
 ) -> ApiResponse[UserRead]:
     """Replace a user's name, email, and password; status is left unchanged."""
-    user = await user_service.replace_user(user_id=user_id, data=data)
+    user = await user_service.replace_user(user_id=user_id, data=data, actor_id=admin.id)
     return ApiResponse(code=CODE_UPDATED, message=MSG_UPDATED, data=user)
 
 
@@ -107,18 +110,20 @@ async def replace_user(
 async def update_user(
     user_id: uuid.UUID,
     data: UserUpdate,
+    admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.USERS_WRITE)),
 ) -> ApiResponse[UserRead]:
     """Partially update a user's name, email, or status."""
-    user = await user_service.update_user(user_id=user_id, data=data)
+    user = await user_service.update_user(user_id=user_id, data=data, actor_id=admin.id)
     return ApiResponse(code=CODE_UPDATED, message=MSG_UPDATED, data=user)
 
 
 @router.delete("/{user_id}", response_model=ApiResponse[None], summary="Delete a user")
 async def delete_user(
     user_id: uuid.UUID,
+    admin: PlatformAdmin = Depends(get_current_admin),
     _: None = Depends(require_permission(PermissionName.USERS_WRITE)),
 ) -> ApiResponse[None]:
     """Delete a user by id."""
-    await user_service.delete_user(user_id)
+    await user_service.delete_user(user_id, actor_id=admin.id)
     return ApiResponse(code=CODE_DELETED, message=MSG_DELETED, data=None)

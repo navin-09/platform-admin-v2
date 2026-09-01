@@ -23,11 +23,18 @@ async def _ensure_code_available(code: str) -> None:
         raise ScreenCodeExistsError()
 
 
-async def create_screen(data: ScreenCreate) -> Screen:
+async def create_screen(data: ScreenCreate, actor_id: uuid.UUID | None = None) -> Screen:
     code = data.code if data.code else await screen_repository.next_screen_code()
     await _ensure_code_available(code)
     super_admin = await role_repository.get_role_by_name(SUPER_ADMIN_ROLE_NAME)
-    screen = Screen(code=code, name=data.name, sort_order=data.sort_order, status=data.status)
+    screen = Screen(
+        code=code,
+        name=data.name,
+        sort_order=data.sort_order,
+        status=data.status,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
     screen = await screen_repository.create_screen(
         screen, super_admin_role_id=super_admin.id if super_admin else None
     )
@@ -58,11 +65,15 @@ async def get_screen(screen_id: uuid.UUID) -> Screen:
     return screen
 
 
-async def update_screen(screen_id: uuid.UUID, data: ScreenUpdate) -> Screen:
+async def update_screen(
+    screen_id: uuid.UUID, data: ScreenUpdate, actor_id: uuid.UUID | None = None
+) -> Screen:
     screen = await get_screen(screen_id)
     payload = data.model_dump(exclude_unset=True, exclude_none=True)
     if screen.code in PROTECTED_SCREEN_CODES and payload.get("status") == Status.INACTIVE:
         raise ProtectedResourceError()
+    if actor_id is not None:
+        payload["updated_by"] = actor_id
     screen = await screen_repository.update_screen(screen=screen, data=payload)
     await audit_service.record(
         action=AuditAction.SCREEN_UPDATE,
@@ -73,10 +84,12 @@ async def update_screen(screen_id: uuid.UUID, data: ScreenUpdate) -> Screen:
     return screen
 
 
-async def delete_screen(screen_id: uuid.UUID) -> None:
+async def delete_screen(screen_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> None:
     screen = await get_screen(screen_id)
     if screen.code in PROTECTED_SCREEN_CODES:
         raise ProtectedResourceError()
+    if actor_id is not None:
+        screen.updated_by = actor_id
     await screen_repository.delete_screen(screen)
     await audit_service.record(
         action=AuditAction.SCREEN_DELETE,

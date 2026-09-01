@@ -117,7 +117,9 @@ class FakeRbacRepository:
     async def role_names_for_admin(self, admin_id: uuid.UUID) -> set[str]:
         return self.role_names
 
-    async def assign_super_admin(self, admin_id: uuid.UUID) -> None:
+    async def assign_super_admin(
+        self, admin_id: uuid.UUID, actor_id: uuid.UUID | None = None
+    ) -> None:
         self.assigned.append(admin_id)
 
 

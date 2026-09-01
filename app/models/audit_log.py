@@ -36,4 +36,7 @@ class AuditLog(SQLModel, table=True):
     request_id: str | None = Field(default=None, max_length=REQUEST_ID_MAX_LENGTH)
     ip_address: str | None = Field(default=None, max_length=IP_ADDRESS_MAX_LENGTH)
     user_agent: str | None = Field(default=None, max_length=USER_AGENT_MAX_LENGTH)
+    # Not populated: ``actor`` above already records who performed the action.
+    created_by: uuid.UUID | None = Field(default=None, foreign_key="platform_admins.id")
+    updated_by: uuid.UUID | None = Field(default=None, foreign_key="platform_admins.id")
     created_at: datetime = Field(index=True, default_factory=utcnow)

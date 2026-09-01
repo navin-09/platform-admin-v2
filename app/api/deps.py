@@ -41,6 +41,17 @@ async def get_current_admin(
         reset_current_actor(token)
 
 
+async def require_super_admin(
+    request: Request,
+    admin: PlatformAdmin = Depends(get_current_admin),
+) -> None:
+    """Dependency allowing the request only if the Current Admin holds the super_admin role."""
+    if not await rbac_service.is_super_admin(admin.id):
+        await _record_denial(request=request, admin=admin, permission=PermissionName.AUDIT_READ)
+        raise PermissionDeniedError()
+    return None
+
+
 def require_permission(
     required: PermissionName,
 ) -> Callable[..., Awaitable[None]]:

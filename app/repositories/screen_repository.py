@@ -18,12 +18,18 @@ async def create_screen(screen: Screen, super_admin_role_id: uuid.UUID | None = 
     db = get_session()
     db.add(screen)
     if super_admin_role_id is not None:
+        # ``screen_code`` FKs to ``screens.code`` (not the PK), so SQLAlchemy's
+        # automatic insert-dependency ordering doesn't cover it; flush the
+        # screen first or the RoleScreen insert can race ahead of it.
+        await db.flush()
         db.add(
             RoleScreen(
                 role_id=super_admin_role_id,
                 screen_code=screen.code,
                 read=True,
                 write=True,
+                created_by=screen.created_by,
+                updated_by=screen.updated_by,
             )
         )
     await db.commit()
