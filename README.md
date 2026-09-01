@@ -156,6 +156,7 @@ platform-admin/
 ├── docs/
 │   ├── standards.md            # the coding rules
 │   ├── testing-standards.md    # enterprise testing rules (all test types)
+│   ├── testing-guide.md        # short, plain-English intro to unit tests
 │   ├── api.md                  # API reference
 │   ├── export-manual-testing.md # manual testing guide for the export APIs
 │   └── adr/                    # architecture decision records

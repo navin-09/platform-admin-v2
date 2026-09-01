@@ -133,6 +133,7 @@ class FakeUserRepository:
         self.user = user  # returned by get_user
         self.email_owner = email_owner  # returned by get_user_by_email
         self.users: list[PlatformAdmin] = []  # returned by list_users
+        self.list_calls: list[dict[str, Any]] = []  # kwargs passed to list_users
         self.active_count = 1  # returned by count_active_admins
         self.created: list[PlatformAdmin] = []
         self.updated: list[tuple[PlatformAdmin, dict[str, Any]]] = []
@@ -149,6 +150,7 @@ class FakeUserRepository:
         return user
 
     async def list_users(self, **kwargs: Any) -> tuple[list[PlatformAdmin], int]:
+        self.list_calls.append(kwargs)
         return (self.users, len(self.users))
 
     async def update_user(self, user: PlatformAdmin, data: dict[str, Any]) -> PlatformAdmin:
