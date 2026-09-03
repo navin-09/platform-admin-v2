@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.repositories import export_repository
+from app.schemas.audit import AuditLogFilter
 
 NOW = datetime(2026, 8, 31, 10, 0, 0)
 
@@ -86,7 +87,7 @@ async def test_count_audit_logs_success_without_filters() -> None:
     db = _session_mock()
     db.scalar = AsyncMock(return_value=37)
     with patch.object(export_repository, "get_session", return_value=db):
-        total = await export_repository.count_audit_logs(None, None, None, None)
+        total = await export_repository.count_audit_logs(AuditLogFilter())
     assert total == 37
 
 
@@ -94,9 +95,13 @@ async def test_count_audit_logs_success_applies_filters() -> None:
     db = _session_mock()
     db.scalar = AsyncMock(return_value=2)
     with patch.object(export_repository, "get_session", return_value=db):
-        total = await export_repository.count_audit_logs(
-            "admin@example.com", "user.create", "user", "admin"
+        filters = AuditLogFilter(
+            actor="admin@example.com",
+            action="user.create",
+            resource_type="user",
+            actor_type="admin",
         )
+        total = await export_repository.count_audit_logs(filters)
     assert total == 2
 
 
@@ -104,7 +109,7 @@ async def test_count_audit_logs_failure_returns_zero_when_null() -> None:
     db = _session_mock()
     db.scalar = AsyncMock(return_value=None)
     with patch.object(export_repository, "get_session", return_value=db):
-        total = await export_repository.count_audit_logs(None, None, None, None)
+        total = await export_repository.count_audit_logs(AuditLogFilter())
     assert total == 0
 
 
@@ -128,7 +133,7 @@ async def test_stream_audit_logs_success_yields_all_rows_in_chunks() -> None:
     db.execute.return_value.scalars.return_value.all.return_value = first_page
 
     with patch.object(export_repository, "get_session", return_value=db):
-        rows = [row async for row in export_repository.stream_audit_logs(None, None, None, None)]
+        rows = [row async for row in export_repository.stream_audit_logs(AuditLogFilter())]
 
     assert rows == first_page
     assert db.execute.await_count == 1
@@ -145,7 +150,7 @@ async def test_stream_audit_logs_success_second_page_uses_keyset() -> None:
     db.execute = AsyncMock(side_effect=[first_result, second_result])
 
     with patch.object(export_repository, "get_session", return_value=db):
-        rows = [row async for row in export_repository.stream_audit_logs(None, None, None, None)]
+        rows = [row async for row in export_repository.stream_audit_logs(AuditLogFilter())]
 
     assert len(rows) == len(first_page)
     assert db.execute.await_count == 2
@@ -160,7 +165,7 @@ async def test_stream_audit_logs_success_empty_result() -> None:
     db.execute.return_value.scalars.return_value.all.return_value = []
 
     with patch.object(export_repository, "get_session", return_value=db):
-        rows = [row async for row in export_repository.stream_audit_logs(None, None, None, None)]
+        rows = [row async for row in export_repository.stream_audit_logs(AuditLogFilter())]
 
     assert rows == []
     assert db.execute.await_count == 1

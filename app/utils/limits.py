@@ -37,3 +37,4 @@ URL_MAX_LENGTH = 2048  # request URL path
 REQUEST_ID_MAX_LENGTH = 255  # client X-Request-ID header or generated UUID
 IP_ADDRESS_MAX_LENGTH = 255  # client IP (conservative; IPv6 max is 45)
 USER_AGENT_MAX_LENGTH = 512  # User-Agent header
+AUDIT_HASH_MAX_LENGTH = 64  # SHA-256 hex digest

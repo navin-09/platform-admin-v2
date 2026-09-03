@@ -1,3 +1,4 @@
+from app.models.audit_intent import AuditIntent
 from app.models.audit_log import AuditLog
 from app.models.export import Export
 from app.models.password_history import PasswordHistory
@@ -10,6 +11,7 @@ from app.models.screen import Screen
 from app.models.user import User
 
 __all__ = [
+    "AuditIntent",
     "AuditLog",
     "Export",
     "PasswordHistory",

@@ -1,11 +1,22 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 CODE_LISTED = "S_200_AUDIT_LIST_OK"
 MSG_LISTED = "Audit logs fetched successfully"
+
+
+class AuditLogFilter(BaseModel):
+    """Audit-log list filters, resolved: None means no filter (never the All sentinel)."""
+
+    actor: str | None = None
+    action: str | None = None
+    resource_type: str | None = None
+    actor_type: str | None = None
+    from_date: date | None = None
+    to_date: date | None = None
 
 
 class AuditLogRead(BaseModel):

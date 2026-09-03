@@ -1,3 +1,8 @@
+import asyncio
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,18 +14,45 @@ from app.database.database import get_db
 from app.exceptions.exception_handlers import register_exception_handlers
 from app.middleware.logging import AccessLogMiddleware
 from app.middleware.request_context import RequestContextMiddleware
+from app.services import audit_service
 
 configure_logging()
 
 
+async def _audit_forwarder() -> None:
+    """Promote Pending Audit Intents into chained Audit Entries until shutdown."""
+    while True:
+        try:
+            await audit_service.promote_intents()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.getLogger("app.forwarder").exception("audit forwarder pass failed")
+        await asyncio.sleep(1.0)
+
+
 def create_app(app_settings: Settings = settings) -> FastAPI:
     """Build and configure the FastAPI application."""
+
     # ``get_db`` runs for every route, so a request-scoped session is available to
     # the repository layer before any endpoint or dependency executes.
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        forwarder = asyncio.create_task(_audit_forwarder())
+        try:
+            yield
+        finally:
+            forwarder.cancel()
+            try:
+                await forwarder
+            except asyncio.CancelledError:
+                pass
+
     app = FastAPI(
         title=app_settings.app_name,
         version=app_settings.app_version,
         dependencies=[Depends(get_db)],
+        lifespan=lifespan,
     )
 
     register_exception_handlers(app)
