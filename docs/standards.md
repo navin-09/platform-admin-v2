@@ -161,3 +161,17 @@ restores them. `super_admin` and screens `S1`–`S4` reject both DELETE and `PAT
 - Bounded strings use `VARCHAR(n)`. `TEXT` is never used for a bounded field.
 - Validation happens **only** in Pydantic schemas (the single server gate). No service-layer re-validation of the same field, and no DB `CHECK` for min-length or format — the app is the sole writer; the database backstops max-length (`VARCHAR`) and `NOT NULL`/uniqueness.
 - Applies to **every** user-supplied input — query params included, not just request bodies.
+
+## 26. API contract — one envelope, stable result codes
+
+Every endpoint returns the shared envelope `{ "code", "message", "data" }` (the `ApiResponse`
+schema in `app/schemas/common.py`); `data` is always present — `null` when there is no payload,
+never an omitted key. `code` follows `{S|W|E}_{httpStatus}_{BUSINESS_CODE}` — `S_201_USR_CREATED`,
+`E_404_USR_NOT_FOUND` — with `W_` marking a request that succeeded but whose side effect failed.
+Success codes/messages live as `CODE_*`/`MSG_*` constants in the resource's schema module
+(rule 6); error codes are declared on their `AppError` classes (rule 7). List endpoints wrap
+their items with `ListData` (`data` array + `pagination`) built through `build_list_data`.
+Routes mount under `/api/v1`; JSON field names are the DTO field names (snake_case).
+The full contract — shapes per method, standard error codes, pagination bounds, auth headers,
+endpoint checklist — is `docs/api-standards.md`; the Users endpoints apply it end-to-end in
+`docs/api.md`.

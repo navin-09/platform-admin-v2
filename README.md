@@ -160,7 +160,8 @@ platform-admin/
 │   ├── standards.md            # the coding rules
 │   ├── testing-standards.md    # enterprise testing rules (all test types)
 │   ├── testing-guide.md        # short, plain-English intro to unit tests
-│   ├── api.md                  # API reference
+│   ├── api.md                  # API reference — Users endpoints (worked example)
+│   ├── api-standards.md        # API contract — envelope, result codes, pagination, checklist
 │   ├── export-manual-testing.md # manual testing guide for the export APIs
 │   ├── flow-diagrams/
 │   │   └── audit-log.md        # audit logging architecture & flow diagrams (Mermaid)
@@ -221,8 +222,7 @@ uv run alembic upgrade head
 
 Create (or reset) the admin account, seed the RBAC catalog (screens + `super_admin` permissions),
 and assign `super_admin` — all idempotent:
-
-```bash
+pi```bash
 uv run python app/database/scripts/seed_admin.py
 # defaults: seeds admin1..admin5@example.com + 5 named team accounts (shiva/kishore/shaktish/satish/naveen@gmail.com) / Admin@1234 (all super_admin)
 ```

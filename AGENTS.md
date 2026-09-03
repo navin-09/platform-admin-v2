@@ -46,6 +46,17 @@ Table models (SQLModel) and API schemas (Pydantic) are *different classes*. A ta
 - **Codes are a public contract.** Never rename or reuse a code once clients depend on it — add a new class instead.
 - To add an error: subclass `AppError` (or a matching category such as `ConflictError`), set `status_code`, `code`, `message`. Field-level detail via `field_errors([("field", "issue")])` into `data`.
 
+## API contract
+
+Every response uses the one envelope — `ApiResponse`: `code`, `message`, `data`, with `data`
+always present (`null` when there's no payload; never omit the key). `code` format:
+`{S|W|E}_{httpStatus}_{BUSINESS_CODE}` — `S_201_USR_CREATED`, `E_404_USR_NOT_FOUND`; `W_` means
+succeeded but a side effect failed. Success codes/messages live as `CODE_*`/`MSG_*` in the
+resource's schema module; error codes on their `AppError` classes. Lists wrap items with
+`ListData` (`data` array + `pagination`) via `build_list_data`; paths mount under `/api/v1`;
+JSON fields are snake_case.
+Full contract: `docs/api-standards.md` · worked example (Users endpoints): `docs/api.md`.
+
 ## Types, async, style
 
 - Everything is type-hinted. `mypy --strict` passes on `app/`. Avoid `Any`; comment why if unavoidable.
