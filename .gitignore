@@ -22,10 +22,10 @@ htmlcov/
 .idea/
 .vscode/
 
-# Personal notes (not pushed yet — add back later)
-docs/
-CONTEXT.md
+# # Personal notes (not pushed yet — add back later)
+# docs/
+# CONTEXT.md
 
-AGENTS.md
+# AGENTS.md
 exports/
 test.db

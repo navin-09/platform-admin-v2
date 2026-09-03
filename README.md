@@ -162,6 +162,8 @@ platform-admin/
 │   ├── testing-guide.md        # short, plain-English intro to unit tests
 │   ├── api.md                  # API reference
 │   ├── export-manual-testing.md # manual testing guide for the export APIs
+│   ├── flow-diagrams/
+│   │   └── audit-log.md        # audit logging architecture & flow diagrams (Mermaid)
 │   └── adr/                    # architecture decision records
 ├── tests/
 │   ├── conftest.py             # env setup (no DB connection)
