@@ -31,8 +31,10 @@ from app.models.enums import (
 )
 from app.models.export import Export
 from app.repositories import export_repository
+from app.schemas.audit import AuditLogFilter
 from app.schemas.export import AuditExportFilters, ExportCreate, UsersExportFilters
 from app.services import audit_service, xlsx_writer
+from app.services.audit_service import AuditEvent
 from app.utils.time import utcnow
 
 logger = logging.getLogger("app.services.export")
@@ -63,17 +65,17 @@ async def create_export(*, admin_email: str, data: ExportCreate) -> Export:
     _spawn_generation(export.id)
 
     await audit_service.record(
-        actor=admin_email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.EXPORT_GENERATED,
-        resource_type=AuditResourceType.EXPORT,
-        resource_id=str(export.id),
-        details={
-            "module": data.module,
-            "reason": data.reason,
-            "row_count": row_count,
-            "filters": filters,
-        },
+        AuditEvent(
+            action=AuditAction.EXPORT_GENERATED,
+            resource_type=AuditResourceType.EXPORT,
+            resource_id=str(export.id),
+            details={
+                "module": data.module,
+                "reason": data.reason,
+                "row_count": row_count,
+                "filters": filters,
+            },
+        )
     )
     return export
 
@@ -100,17 +102,17 @@ async def download_export(*, export_id: uuid.UUID, admin_email: str) -> FileResp
         raise ExportNotFoundError()
 
     await audit_service.record(
-        actor=admin_email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.EXPORT_DOWNLOADED,
-        resource_type=AuditResourceType.EXPORT,
-        resource_id=str(export.id),
-        details={
-            "module": export.module,
-            "reason": export.reason,
-            "row_count": export.row_count,
-            "classification": export.classification,
-        },
+        AuditEvent(
+            action=AuditAction.EXPORT_DOWNLOADED,
+            resource_type=AuditResourceType.EXPORT,
+            resource_id=str(export.id),
+            details={
+                "module": export.module,
+                "reason": export.reason,
+                "row_count": export.row_count,
+                "classification": export.classification,
+            },
+        )
     )
     return FileResponse(path, media_type=XLSX_MEDIA_TYPE, filename=path.name)
 
@@ -183,10 +185,8 @@ def _row_stream(
 
     async def _iter() -> AsyncIterator[list[Any]]:
         if spec.module == "audit":
-            actor, action, resource_type, actor_type = _audit_filters_from_dict(filters)
-            async for audit_entry in export_repository.stream_audit_logs(
-                actor=actor, action=action, resource_type=resource_type, actor_type=actor_type
-            ):
+            audit_filter = _audit_filters_from_dict(filters)
+            async for audit_entry in export_repository.stream_audit_logs(filters=audit_filter):
                 yield _extract_row(audit_entry, spec)
         elif spec.module == "users":
             search, status = _users_filters_from_dict(filters)
@@ -205,10 +205,8 @@ def _row_stream(
 async def _count_rows(spec: ExportSpec, filters: dict[str, object] | None) -> int:
     """Count matching rows for the spec's module (drives the 100k cap)."""
     if spec.module == "audit":
-        actor, action, resource_type, actor_type = _audit_filters_from_dict(filters)
-        return await export_repository.count_audit_logs(
-            actor=actor, action=action, resource_type=resource_type, actor_type=actor_type
-        )
+        audit_filter = _audit_filters_from_dict(filters)
+        return await export_repository.count_audit_logs(filters=audit_filter)
     if spec.module == "users":
         search, status = _users_filters_from_dict(filters)
         return await export_repository.count_platform_admins(search=search, status=status)
@@ -264,17 +262,15 @@ def _file_exists(export: Export) -> bool:
     return export.file_path is not None and Path(export.file_path).is_file()
 
 
-def _audit_filters_from_dict(
-    filters: dict[str, object] | None,
-) -> tuple[str | None, str | None, str | None, str | None]:
+def _audit_filters_from_dict(filters: dict[str, object] | None) -> AuditLogFilter:
     if not filters:
-        return (None, None, None, None)
+        return AuditLogFilter()
     actor = filters.get("actor")
-    return (
-        actor if isinstance(actor, str) else None,
-        _resolve_stored(filters.get("action"), AuditAction),
-        _resolve_stored(filters.get("resource_type"), AuditResourceType),
-        _resolve_stored(filters.get("actor_type"), ActorType),
+    return AuditLogFilter(
+        actor=actor if isinstance(actor, str) else None,
+        action=_resolve_stored(filters.get("action"), AuditAction),
+        resource_type=_resolve_stored(filters.get("resource_type"), AuditResourceType),
+        actor_type=_resolve_stored(filters.get("actor_type"), ActorType),
     )
 
 

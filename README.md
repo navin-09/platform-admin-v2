@@ -77,7 +77,8 @@ platform-admin/
 │   │   ├── session.py          # request-scoped session holder (get_session)
 │   │   └── scripts/
 │   │       ├── seed_admin.py   # create/reset Platform Admin(s) + seed catalog + assign super_admin (default: 10 dev admins)
-│   │       └── seed_rbac.py    # seed RBAC catalog + backfill super_admin (idempotent)
+│   │       ├── seed_rbac.py    # seed RBAC catalog + backfill super_admin (idempotent)
+│   │       └── verify_audit_chain.py  # walk the audit hash chain, recompute every hash, flag tampering
 │   ├── api/
 │   │   ├── deps.py             # auth + permission deps (get_current_admin, require_permission)
 │   │   ├── router.py           # aggregate router mounting v1 routes under /api/v1
@@ -114,7 +115,8 @@ platform-admin/
 │   │   ├── platform_admin_role.py  # admin → role assignments
 │   │   ├── password_reset_otp.py   # password-reset OTP state (expiry + throttle)
 │   │   ├── password_history.py     # previous hashed passwords (reuse check)
-│   │   ├── audit_log.py        # audit_logs table
+│   │   ├── audit_intent.py     # audit_intents outbox table (durable Pending Audit Intent)
+│   │   ├── audit_log.py        # audit_logs table (hash-chained evidence)
 │   │   └── export.py           # exports table (export jobs + 24h link state)
 │   ├── repositories/
 │   │   ├── auth_repository.py  # admin lookup
@@ -150,6 +152,7 @@ platform-admin/
 │   └── utils/
 │       ├── limits.py           # shared field-length/range constants
 │       ├── pagination.py       # total_pages helper
+│       ├── audit_chain.py      # SHA-256 chaining for audit entries (tamper evidence)
 │       ├── redact.py           # mask credential-shaped fields before audit persistence
 │       ├── time.py             # utcnow helper
 │       └── validate.py         # shared request-field format validators

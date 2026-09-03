@@ -14,6 +14,8 @@ from app.models.audit_log import AuditLog
 from app.models.enums import Status
 from app.models.export import Export
 from app.models.platform_admin import PlatformAdmin
+from app.repositories.audit_repository import audit_log_filters
+from app.schemas.audit import AuditLogFilter
 
 
 async def create_export(
@@ -52,33 +54,10 @@ async def update_export(export: Export) -> None:
     await db.commit()
 
 
-def _audit_filters(
-    actor: str | None,
-    action: str | None,
-    resource_type: str | None,
-    actor_type: str | None,
-) -> list[Any]:
-    filters: list[Any] = []
-    if actor:
-        filters.append(col(AuditLog.actor) == actor)
-    if action:
-        filters.append(col(AuditLog.action) == action)
-    if resource_type:
-        filters.append(col(AuditLog.resource_type) == resource_type)
-    if actor_type:
-        filters.append(col(AuditLog.actor_type) == actor_type)
-    return filters
-
-
-async def count_audit_logs(
-    actor: str | None,
-    action: str | None,
-    resource_type: str | None,
-    actor_type: str | None,
-) -> int:
+async def count_audit_logs(filters: AuditLogFilter) -> int:
     db = get_session()
-    filters = _audit_filters(actor, action, resource_type, actor_type)
-    total = await db.scalar(select(func.count()).select_from(AuditLog).where(*filters))
+    conditions = audit_log_filters(filters)
+    total = await db.scalar(select(func.count()).select_from(AuditLog).where(*conditions))
     return total or 0
 
 
@@ -143,21 +122,16 @@ async def stream_platform_admins(
         last_id = rows[-1].id
 
 
-async def stream_audit_logs(
-    actor: str | None,
-    action: str | None,
-    resource_type: str | None,
-    actor_type: str | None,
-) -> AsyncIterator[AuditLog]:
+async def stream_audit_logs(filters: AuditLogFilter) -> AsyncIterator[AuditLog]:
     """Stream matching audit logs (created_at DESC, id DESC) via keyset pagination."""
     db = get_session()
     chunk_size = settings.export_stream_chunk_size
     last_created_at: datetime | None = None
     last_id: uuid.UUID | None = None
     while True:
-        filters = _audit_filters(actor, action, resource_type, actor_type)
+        conditions = audit_log_filters(filters)
         if last_created_at is not None and last_id is not None:
-            filters.append(
+            conditions.append(
                 or_(
                     col(AuditLog.created_at) < last_created_at,
                     and_(
@@ -168,7 +142,7 @@ async def stream_audit_logs(
             )
         result = await db.execute(
             select(AuditLog)
-            .where(*filters)
+            .where(*conditions)
             .order_by(col(AuditLog.created_at).desc(), col(AuditLog.id).desc())
             .limit(chunk_size)
         )

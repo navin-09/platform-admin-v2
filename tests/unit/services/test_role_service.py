@@ -78,12 +78,12 @@ async def test_create_role_success(fakes) -> None:
 
     assert created.name == "support-agent"
     assert created.permissions == []
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.ROLE_CREATE,
-        resource_type=AuditResourceType.ROLE,
-        resource_id=str(created.id),
-        details={"name": "support-agent", "permissions": []},
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.ROLE_CREATE
+    assert event.resource_type == AuditResourceType.ROLE
+    assert event.resource_id == str(created.id)
+    assert event.details == {"name": "support-agent", "permissions": []}
 
 
 async def test_create_role_success_normalizes_permissions(fakes, monkeypatch) -> None:
@@ -154,12 +154,12 @@ async def test_update_role_success(fakes) -> None:
 
     assert result.description == "desc"
     assert result.permissions == []
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.ROLE_UPDATE,
-        resource_type=AuditResourceType.ROLE,
-        resource_id=str(fakes.role.id),
-        details={"description": "desc"},
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.ROLE_UPDATE
+    assert event.resource_type == AuditResourceType.ROLE
+    assert event.resource_id == str(fakes.role.id)
+    assert event.details == {"description": "desc"}
 
 
 async def test_update_role_success_replaces_permissions(fakes, monkeypatch) -> None:
@@ -240,11 +240,11 @@ async def test_delete_role_success(fakes) -> None:
     await role_service.delete_role(fakes.role.id)
 
     assert fakes.deleted == [fakes.role]
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.ROLE_DELETE,
-        resource_type=AuditResourceType.ROLE,
-        resource_id=str(fakes.role.id),
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.ROLE_DELETE
+    assert event.resource_type == AuditResourceType.ROLE
+    assert event.resource_id == str(fakes.role.id)
 
 
 async def test_delete_role_failure_not_found(fakes) -> None:

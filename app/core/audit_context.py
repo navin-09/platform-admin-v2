@@ -1,6 +1,6 @@
-"""Ambient audit-actor and request-metadata context (ContextVars)."""
+"""The audit actor and request facts attached to the current request (ContextVars)."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
@@ -71,9 +71,19 @@ def get_request_metadata() -> RequestMetadata | None:
 
 
 @asynccontextmanager
-async def system_actor(name: str) -> AsyncIterator[None]:
+async def system_actor(name: str) -> AsyncGenerator[None, None]:
     """Run a block with the actor set to an automation identity (non-HTTP entry points)."""
     token = set_current_actor(name, ActorType.SYSTEM.value)
+    try:
+        yield
+    finally:
+        reset_current_actor(token)
+
+
+@asynccontextmanager
+async def claimed_actor(email: str, actor_type: str) -> AsyncGenerator[None, None]:
+    """Run a block acting under a claimed (unauthenticated) identity (pre-auth flows)."""
+    token = set_current_actor(email, actor_type)
     try:
         yield
     finally:

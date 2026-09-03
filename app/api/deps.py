@@ -13,6 +13,7 @@ from app.exceptions.exceptions import AuthenticationError, PermissionDeniedError
 from app.models.enums import ActorType, AuditAction, AuditResourceType, PermissionName
 from app.models.platform_admin import PlatformAdmin
 from app.services import audit_service, auth_service, rbac_service
+from app.services.audit_service import AuditEvent
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -32,7 +33,7 @@ def _access_token_payload(credentials: HTTPAuthorizationCredentials | None) -> d
 async def get_current_admin(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> AsyncIterator[PlatformAdmin]:
-    """Resolve the Current Admin and expose it as the ambient audit actor."""
+    """Resolve the Current Admin and set it as the audit actor for this request."""
     admin = await auth_service.get_admin_from_payload(_access_token_payload(credentials))
     token = set_current_actor(admin.email, ActorType.ADMIN.value)
     try:
@@ -66,16 +67,16 @@ async def _record_denial(
 ) -> None:
     """Record an ``access.denied`` Audit Entry before the 403 is raised."""
     await audit_service.record(
-        actor=admin.email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.ACCESS_DENIED,
-        resource_type=_denial_resource_type(permission),
-        details={
-            "permission": permission.value,
-            "display_name": admin.username,
-            "method": request.method,
-            "path": request.url.path,
-        },
+        AuditEvent(
+            action=AuditAction.ACCESS_DENIED,
+            resource_type=_denial_resource_type(permission),
+            details={
+                "permission": permission.value,
+                "display_name": admin.username,
+                "method": request.method,
+                "path": request.url.path,
+            },
+        )
     )
 
 

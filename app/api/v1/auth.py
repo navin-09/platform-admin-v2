@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.deps import bearer_scheme, get_current_admin
+from app.core.audit_context import claimed_actor
 from app.exceptions.exceptions import (
     AccountLockedError,
     AppError,
@@ -34,6 +35,7 @@ from app.schemas.auth import (
 )
 from app.schemas.common import ApiResponse
 from app.services import audit_service, auth_service
+from app.services.audit_service import AuditEvent
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -45,38 +47,39 @@ async def login(
     credentials: LoginRequest,
 ) -> ApiResponse[TokenResponse]:
     """Authenticate a platform admin and return access and refresh tokens."""
-    payload = credentials.model_dump(mode="json", exclude_unset=True)
-    try:
-        token = await auth_service.login(credentials)
-    except AppError as exc:
-        action = (
-            AuditAction.LOGIN_LOCKOUT
-            if isinstance(exc, AccountLockedError)
-            else AuditAction.LOGIN_FAILURE
+    async with claimed_actor(credentials.email, ActorType.ADMIN.value):
+        payload = credentials.model_dump(mode="json", exclude_unset=True)
+        try:
+            token = await auth_service.login(credentials)
+        except AppError as exc:
+            action = (
+                AuditAction.LOGIN_LOCKOUT
+                if isinstance(exc, AccountLockedError)
+                else AuditAction.LOGIN_FAILURE
+            )
+            await audit_service.record_failure(
+                AuditEvent(
+                    action=action,
+                    resource_type=AuditResourceType.AUTH,
+                    resource_id=credentials.email,
+                    payload=payload,
+                ),
+                exc,
+            )
+            raise
+        response: ApiResponse[TokenResponse] = ApiResponse(
+            code=CODE_LOGIN_OK, message=MSG_LOGIN_OK, data=token
         )
         await audit_service.record(
-            actor=credentials.email,
-            actor_type=ActorType.ADMIN.value,
-            action=action,
-            resource_type=AuditResourceType.AUTH,
-            resource_id=credentials.email,
-            details={"error_code": exc.code},
-            payload=payload,
+            AuditEvent(
+                action=AuditAction.LOGIN_SUCCESS,
+                resource_type=AuditResourceType.AUTH,
+                resource_id=credentials.email,
+                payload=payload,
+                response=response.model_dump(mode="json"),
+            )
         )
-        raise
-    response: ApiResponse[TokenResponse] = ApiResponse(
-        code=CODE_LOGIN_OK, message=MSG_LOGIN_OK, data=token
-    )
-    await audit_service.record(
-        actor=credentials.email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.LOGIN_SUCCESS,
-        resource_type=AuditResourceType.AUTH,
-        resource_id=credentials.email,
-        payload=payload,
-        response=response.model_dump(mode="json"),
-    )
-    return response
+        return response
 
 
 @router.post(
@@ -90,23 +93,25 @@ async def refresh(payload: RefreshRequest) -> ApiResponse[TokenResponse]:
     try:
         token = await auth_service.refresh(payload)
     except AppError as exc:
-        await audit_service.record(
-            actor=None,
-            action=AuditAction.REFRESH_FAILURE,
-            resource_type=AuditResourceType.AUTH,
-            details={"error_code": exc.code},
-            payload=body,
+        await audit_service.record_failure(
+            AuditEvent(
+                action=AuditAction.REFRESH_FAILURE,
+                resource_type=AuditResourceType.AUTH,
+                payload=body,
+            ),
+            exc,
         )
         raise
     response: ApiResponse[TokenResponse] = ApiResponse(
         code=CODE_REFRESH_OK, message=MSG_REFRESH_OK, data=token
     )
     await audit_service.record(
-        actor=None,
-        action=AuditAction.REFRESH_SUCCESS,
-        resource_type=AuditResourceType.AUTH,
-        payload=body,
-        response=response.model_dump(mode="json"),
+        AuditEvent(
+            action=AuditAction.REFRESH_SUCCESS,
+            resource_type=AuditResourceType.AUTH,
+            payload=body,
+            response=response.model_dump(mode="json"),
+        )
     )
     return response
 
@@ -118,30 +123,34 @@ async def refresh(payload: RefreshRequest) -> ApiResponse[TokenResponse]:
 )
 async def generate_otp(payload: GenerateOtpRequest) -> ApiResponse[None]:
     """Validate that the admin account exists and is active before an OTP is issued."""
-    body = payload.model_dump(mode="json", exclude_unset=True)
-    try:
-        await auth_service.generate_otp(payload)
-    except OtpThrottledError as exc:
-        await audit_service.record(
-            actor=payload.email,
-            actor_type=ActorType.ADMIN.value,
-            action=AuditAction.OTP_THROTTLED,
-            resource_type=AuditResourceType.AUTH,
-            resource_id=payload.email,
-            details={"error_code": exc.code},
-            payload=body,
+    async with claimed_actor(payload.email, ActorType.ADMIN.value):
+        body = payload.model_dump(mode="json", exclude_unset=True)
+        try:
+            await auth_service.generate_otp(payload)
+        except OtpThrottledError as exc:
+            await audit_service.record_failure(
+                AuditEvent(
+                    action=AuditAction.OTP_THROTTLED,
+                    resource_type=AuditResourceType.AUTH,
+                    resource_id=payload.email,
+                    payload=body,
+                ),
+                exc,
+            )
+            raise
+        response: ApiResponse[None] = ApiResponse(
+            code=CODE_OTP_SENT, message=MSG_OTP_SENT, data=None
         )
-        raise
-    response: ApiResponse[None] = ApiResponse(code=CODE_OTP_SENT, message=MSG_OTP_SENT, data=None)
-    await audit_service.record(
-        actor=payload.email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.OTP_REQUESTED,
-        resource_type=AuditResourceType.AUTH,
-        payload=body,
-        response=response.model_dump(mode="json"),
-    )
-    return response
+        await audit_service.record(
+            AuditEvent(
+                action=AuditAction.OTP_REQUESTED,
+                resource_type=AuditResourceType.AUTH,
+                resource_id=payload.email,
+                payload=body,
+                response=response.model_dump(mode="json"),
+            )
+        )
+        return response
 
 
 @router.post(
@@ -151,33 +160,34 @@ async def generate_otp(payload: GenerateOtpRequest) -> ApiResponse[None]:
 )
 async def verify_otp(payload: VerifyOtpRequest) -> ApiResponse[None]:
     """Verify the OTP sent for the given email."""
-    body = payload.model_dump(mode="json", exclude_unset=True)
-    try:
-        await auth_service.verify_otp(payload)
-    except AppError as exc:
-        await audit_service.record(
-            actor=payload.email,
-            actor_type=ActorType.ADMIN.value,
-            action=AuditAction.OTP_VERIFY_FAILURE,
-            resource_type=AuditResourceType.AUTH,
-            resource_id=payload.email,
-            details={"error_code": exc.code},
-            payload=body,
+    async with claimed_actor(payload.email, ActorType.ADMIN.value):
+        body = payload.model_dump(mode="json", exclude_unset=True)
+        try:
+            await auth_service.verify_otp(payload)
+        except AppError as exc:
+            await audit_service.record_failure(
+                AuditEvent(
+                    action=AuditAction.OTP_VERIFY_FAILURE,
+                    resource_type=AuditResourceType.AUTH,
+                    resource_id=payload.email,
+                    payload=body,
+                ),
+                exc,
+            )
+            raise
+        response: ApiResponse[None] = ApiResponse(
+            code=CODE_OTP_VERIFIED, message=MSG_OTP_VERIFIED, data=None
         )
-        raise
-    response: ApiResponse[None] = ApiResponse(
-        code=CODE_OTP_VERIFIED, message=MSG_OTP_VERIFIED, data=None
-    )
-    await audit_service.record(
-        actor=payload.email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.OTP_VERIFY_SUCCESS,
-        resource_type=AuditResourceType.AUTH,
-        resource_id=payload.email,
-        payload=body,
-        response=response.model_dump(mode="json"),
-    )
-    return response
+        await audit_service.record(
+            AuditEvent(
+                action=AuditAction.OTP_VERIFY_SUCCESS,
+                resource_type=AuditResourceType.AUTH,
+                resource_id=payload.email,
+                payload=body,
+                response=response.model_dump(mode="json"),
+            )
+        )
+        return response
 
 
 @router.post(
@@ -187,33 +197,34 @@ async def verify_otp(payload: VerifyOtpRequest) -> ApiResponse[None]:
 )
 async def update_password(payload: UpdatePasswordRequest) -> ApiResponse[None]:
     """Set a new password for the admin identified by email."""
-    body = payload.model_dump(mode="json", exclude_unset=True)
-    try:
-        await auth_service.update_password(payload)
-    except AppError as exc:
-        await audit_service.record(
-            actor=payload.email,
-            actor_type=ActorType.ADMIN.value,
-            action=AuditAction.PASSWORD_RESET_FAILURE,
-            resource_type=AuditResourceType.AUTH,
-            resource_id=payload.email,
-            details={"error_code": exc.code},
-            payload=body,
+    async with claimed_actor(payload.email, ActorType.ADMIN.value):
+        body = payload.model_dump(mode="json", exclude_unset=True)
+        try:
+            await auth_service.update_password(payload)
+        except AppError as exc:
+            await audit_service.record_failure(
+                AuditEvent(
+                    action=AuditAction.PASSWORD_RESET_FAILURE,
+                    resource_type=AuditResourceType.AUTH,
+                    resource_id=payload.email,
+                    payload=body,
+                ),
+                exc,
+            )
+            raise
+        response: ApiResponse[None] = ApiResponse(
+            code=CODE_PASSWORD_UPDATED, message=MSG_PASSWORD_UPDATED, data=None
         )
-        raise
-    response: ApiResponse[None] = ApiResponse(
-        code=CODE_PASSWORD_UPDATED, message=MSG_PASSWORD_UPDATED, data=None
-    )
-    await audit_service.record(
-        actor=payload.email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.PASSWORD_RESET_SUCCESS,
-        resource_type=AuditResourceType.AUTH,
-        resource_id=payload.email,
-        payload=body,
-        response=response.model_dump(mode="json"),
-    )
-    return response
+        await audit_service.record(
+            AuditEvent(
+                action=AuditAction.PASSWORD_RESET_SUCCESS,
+                resource_type=AuditResourceType.AUTH,
+                resource_id=payload.email,
+                payload=body,
+                response=response.model_dump(mode="json"),
+            )
+        )
+        return response
 
 
 @router.post(
@@ -231,11 +242,11 @@ async def logout(
     await auth_service.logout(access_token=credentials.credentials)
     response: ApiResponse[None] = ApiResponse(code=CODE_LOGOUT_OK, message=MSG_LOGOUT_OK, data=None)
     await audit_service.record(
-        actor=admin.email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.LOGOUT,
-        resource_type=AuditResourceType.AUTH,
-        resource_id=admin.email,
-        response=response.model_dump(mode="json"),
+        AuditEvent(
+            action=AuditAction.LOGOUT,
+            resource_type=AuditResourceType.AUTH,
+            resource_id=admin.email,
+            response=response.model_dump(mode="json"),
+        )
     )
     return response

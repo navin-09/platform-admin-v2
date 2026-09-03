@@ -42,12 +42,12 @@ async def test_create_user_success(fakes) -> None:
     assert created.username == "Alice"
     assert created.hashed_password == "hashed"
     assert fakes.created == [created]
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.USER_CREATE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(created.id),
-        details={"email": "alice@example.com", "name": "Alice"},
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.USER_CREATE
+    assert event.resource_type == AuditResourceType.USER
+    assert event.resource_id == str(created.id)
+    assert event.details == {"email": "alice@example.com", "name": "Alice"}
 
 
 async def test_create_user_success_assigns_super_admin(fakes, monkeypatch) -> None:
@@ -126,12 +126,12 @@ async def test_update_user_success_applies_fields(fakes) -> None:
     result = await user_service.update_user(user_id=fakes.user.id, data=UserUpdate(name="Bob"))
 
     assert result.username == "Bob"
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.USER_UPDATE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(fakes.user.id),
-        details={"name": "Bob"},
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.USER_UPDATE
+    assert event.resource_type == AuditResourceType.USER
+    assert event.resource_id == str(fakes.user.id)
+    assert event.details == {"name": "Bob"}
 
 
 async def test_update_user_success_email_change(fakes) -> None:
@@ -183,12 +183,12 @@ async def test_replace_user_success(fakes) -> None:
     assert result is fakes.user
     assert result.username == "Alice"
     assert result.hashed_password == "hashed"
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.USER_REPLACE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(fakes.user.id),
-        details={"email": "alice@example.com", "name": "Alice"},
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.USER_REPLACE
+    assert event.resource_type == AuditResourceType.USER
+    assert event.resource_id == str(fakes.user.id)
+    assert event.details == {"email": "alice@example.com", "name": "Alice"}
 
 
 async def test_replace_user_success_clears_lockout(fakes) -> None:
@@ -215,11 +215,11 @@ async def test_delete_user_success(fakes) -> None:
     await user_service.delete_user(fakes.user.id)
 
     assert fakes.deleted == [fakes.user]
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.USER_DELETE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(fakes.user.id),
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.USER_DELETE
+    assert event.resource_type == AuditResourceType.USER
+    assert event.resource_id == str(fakes.user.id)
 
 
 async def test_delete_user_failure_last_active(fakes) -> None:

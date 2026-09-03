@@ -277,14 +277,18 @@ class FakeHealthRepository:
 
 
 class FakeAuditRepository:
-    """Fake for ``app.repositories.audit_repository``."""
+    """Fake for ``app.repositories.audit_repository`` (intents + listing)."""
 
     def __init__(self) -> None:
-        self.created: list[dict[str, Any]] = []
+        self.intents: list[dict[str, Any]] = []
         self.entries: list[Any] = []  # returned by list_audit_logs
+        self.promoted = 0
 
-    async def create_audit_log(self, **kwargs: Any) -> None:
-        self.created.append(kwargs)
+    async def create_audit_intent(self, *, payload: dict[str, Any], created_at: datetime) -> None:
+        self.intents.append({"payload": payload, "created_at": created_at})
+
+    async def promote_audit_intents(self) -> int:
+        return self.promoted
 
     async def list_audit_logs(self, **kwargs: Any) -> tuple[list[Any], int]:
         return (self.entries, len(self.entries))

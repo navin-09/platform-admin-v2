@@ -20,6 +20,7 @@ from app.exceptions.exceptions import (
 )
 from app.models.enums import ExportStatus
 from app.models.export import Export
+from app.schemas.audit import AuditLogFilter
 from app.schemas.export import AuditExportFilters, ExportCreate, UsersExportFilters
 from app.services import export_service
 
@@ -38,7 +39,7 @@ class FakeExportRepository:
         self.created: Export | None = None
         self.created_kwargs: dict[str, Any] = {}
         self.updated: list[Export] = []
-        self.audit_filters_calls: list[tuple[Any, ...]] = []
+        self.audit_filters_calls: list[Any] = []
         self.user_filters_calls: list[tuple[Any, ...]] = []
         self.spawned: list[uuid.UUID] = []
         self.audit_record = AsyncMock()
@@ -55,7 +56,7 @@ class FakeExportRepository:
         self.updated.append(export)
 
     async def count_audit_logs(self, **kwargs: Any) -> int:
-        self.audit_filters_calls.append(tuple(kwargs.values()))
+        self.audit_filters_calls.append(kwargs["filters"])
         return self.row_count
 
     async def count_platform_admins(self, **kwargs: Any) -> int:
@@ -158,9 +159,9 @@ async def test_create_export_success(fake_repo) -> None:
     assert fake_repo.created_kwargs["reason"] == "Quarterly review"
     assert fake_repo.created_kwargs["classification"] == "Restricted"
     assert fake_repo.spawned == [export.id]
-    action = fake_repo.audit_record.await_args.kwargs["action"]
-    assert action == "export.generated"
-    assert fake_repo.audit_record.await_args.kwargs["resource_id"] == str(export.id)
+    event = fake_repo.audit_record.await_args.args[0]
+    assert event.action == "export.generated"
+    assert event.resource_id == str(export.id)
 
 
 async def test_create_export_users_module_uses_users_filters(fake_repo) -> None:
@@ -257,9 +258,9 @@ async def test_download_export_success(fake_repo, tmp_path) -> None:
 
     assert response.path == target
     assert response.media_type == export_service.XLSX_MEDIA_TYPE
-    action = fake_repo.audit_record.await_args.kwargs["action"]
-    assert action == "export.downloaded"
-    assert fake_repo.audit_record.await_args.kwargs["resource_id"] == str(export.id)
+    event = fake_repo.audit_record.await_args.args[0]
+    assert event.action == "export.downloaded"
+    assert event.resource_id == str(export.id)
 
 
 async def test_download_export_success_regenerates_when_file_missing(
@@ -378,4 +379,6 @@ async def test_create_export_passes_resolved_audit_filters(fake_repo) -> None:
         ),
     )
 
-    assert fake_repo.audit_filters_calls == [("admin@example.com", "user.create", None, None)]
+    assert fake_repo.audit_filters_calls == [
+        AuditLogFilter(actor="admin@example.com", action="user.create")
+    ]

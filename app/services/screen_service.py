@@ -13,6 +13,7 @@ from app.models.screen import Screen
 from app.repositories import role_repository, screen_repository
 from app.schemas.screen import ScreenCreate, ScreenUpdate
 from app.services import audit_service
+from app.services.audit_service import AuditEvent
 
 PROTECTED_SCREEN_CODES = {"S1", "S2", "S3", "S4"}
 SUPER_ADMIN_ROLE_NAME = "super_admin"
@@ -32,10 +33,12 @@ async def create_screen(data: ScreenCreate) -> Screen:
         screen, super_admin_role_id=super_admin.id if super_admin else None
     )
     await audit_service.record(
-        action=AuditAction.SCREEN_CREATE,
-        resource_type=AuditResourceType.SCREEN,
-        resource_id=screen.code,
-        details={"code": screen.code, "name": screen.name},
+        AuditEvent(
+            action=AuditAction.SCREEN_CREATE,
+            resource_type=AuditResourceType.SCREEN,
+            resource_id=screen.code,
+            details={"code": screen.code, "name": screen.name},
+        )
     )
     return screen
 
@@ -65,10 +68,12 @@ async def update_screen(screen_id: uuid.UUID, data: ScreenUpdate) -> Screen:
         raise ProtectedResourceError()
     screen = await screen_repository.update_screen(screen=screen, data=payload)
     await audit_service.record(
-        action=AuditAction.SCREEN_UPDATE,
-        resource_type=AuditResourceType.SCREEN,
-        resource_id=screen.code,
-        details=data.model_dump(exclude_unset=True, exclude_none=True, mode="json"),
+        AuditEvent(
+            action=AuditAction.SCREEN_UPDATE,
+            resource_type=AuditResourceType.SCREEN,
+            resource_id=screen.code,
+            details=data.model_dump(exclude_unset=True, exclude_none=True, mode="json"),
+        )
     )
     return screen
 
@@ -79,7 +84,9 @@ async def delete_screen(screen_id: uuid.UUID) -> None:
         raise ProtectedResourceError()
     await screen_repository.delete_screen(screen)
     await audit_service.record(
-        action=AuditAction.SCREEN_DELETE,
-        resource_type=AuditResourceType.SCREEN,
-        resource_id=screen.code,
+        AuditEvent(
+            action=AuditAction.SCREEN_DELETE,
+            resource_type=AuditResourceType.SCREEN,
+            resource_id=screen.code,
+        )
     )

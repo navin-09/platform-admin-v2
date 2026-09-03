@@ -16,6 +16,7 @@ from app.models.role_screen import RoleScreen
 from app.repositories import role_repository, screen_repository
 from app.schemas.role import RoleCreate, RoleRead, RoleUpdate
 from app.services import audit_service
+from app.services.audit_service import AuditEvent
 
 SUPER_ADMIN_ROLE_NAME = "super_admin"
 
@@ -110,10 +111,12 @@ async def create_role(data: RoleCreate) -> RoleRead:
     role = await role_repository.create_role(role, _permission_rows(role.id, by_code))
     rows = await role_repository.permissions_for_role(role.id)
     await audit_service.record(
-        action=AuditAction.ROLE_CREATE,
-        resource_type=AuditResourceType.ROLE,
-        resource_id=str(role.id),
-        details={"name": role.name, "permissions": _expand_permissions(rows)},
+        AuditEvent(
+            action=AuditAction.ROLE_CREATE,
+            resource_type=AuditResourceType.ROLE,
+            resource_id=str(role.id),
+            details={"name": role.name, "permissions": _expand_permissions(rows)},
+        )
     )
     return _to_read(role, rows)
 
@@ -166,10 +169,12 @@ async def update_role(role_id: uuid.UUID, data: RoleUpdate) -> RoleRead:
             await role_repository.permissions_for_role(role_id)
         )
     await audit_service.record(
-        action=AuditAction.ROLE_UPDATE,
-        resource_type=AuditResourceType.ROLE,
-        resource_id=str(role_id),
-        details=details,
+        AuditEvent(
+            action=AuditAction.ROLE_UPDATE,
+            resource_type=AuditResourceType.ROLE,
+            resource_id=str(role_id),
+            details=details,
+        )
     )
     return await _read_role(role)
 
@@ -180,7 +185,9 @@ async def delete_role(role_id: uuid.UUID) -> None:
         raise ProtectedResourceError()
     await role_repository.delete_role(role)
     await audit_service.record(
-        action=AuditAction.ROLE_DELETE,
-        resource_type=AuditResourceType.ROLE,
-        resource_id=str(role_id),
+        AuditEvent(
+            action=AuditAction.ROLE_DELETE,
+            resource_type=AuditResourceType.ROLE,
+            resource_id=str(role_id),
+        )
     )

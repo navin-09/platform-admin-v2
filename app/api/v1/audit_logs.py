@@ -21,9 +21,10 @@ from app.models.enums import (
     resolve_filter,
 )
 from app.models.platform_admin import PlatformAdmin
-from app.schemas.audit import CODE_LISTED, MSG_LISTED, AuditLogRead
+from app.schemas.audit import CODE_LISTED, MSG_LISTED, AuditLogFilter, AuditLogRead
 from app.schemas.common import ApiResponse, ListData, build_list_data
 from app.services import audit_service
+from app.services.audit_service import AuditEvent
 from app.utils.limits import ACTOR_FILTER_MAX_LENGTH
 
 router = APIRouter(tags=["Audit"])
@@ -60,14 +61,16 @@ async def list_audit_logs(
     resource type, or date range.
     """
     entries, total = await audit_service.list_audit_logs(
+        AuditLogFilter(
+            actor=actor,
+            action=resolve_filter(action, AuditAction),
+            resource_type=resolve_filter(resource_type, AuditResourceType),
+            actor_type=resolve_filter(actor_type, ActorType),
+            from_date=from_date,
+            to_date=to_date,
+        ),
         page=page,
         limit=limit,
-        actor=actor,
-        action=resolve_filter(action, AuditAction),
-        resource_type=resolve_filter(resource_type, AuditResourceType),
-        actor_type=resolve_filter(actor_type, ActorType),
-        from_date=from_date,
-        to_date=to_date,
     )
     response: ApiResponse[ListData[AuditLogRead]] = ApiResponse(
         code=CODE_LISTED,
@@ -75,10 +78,10 @@ async def list_audit_logs(
         data=build_list_data(AuditLogRead, entries, page=page, limit=limit, total=total),
     )
     await audit_service.record(
-        actor=admin.email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.AUDIT_READ,
-        resource_type=AuditResourceType.AUDIT,
-        details={"page": page, "limit": limit, "total": total},
+        AuditEvent(
+            action=AuditAction.AUDIT_READ,
+            resource_type=AuditResourceType.AUDIT,
+            details={"page": page, "limit": limit, "total": total},
+        )
     )
     return response

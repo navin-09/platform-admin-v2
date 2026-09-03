@@ -52,12 +52,12 @@ async def test_create_screen_success_auto_generates_code(fakes) -> None:
     created = await screen_service.create_screen(ScreenCreate(name="Reports"))
 
     assert created.code == "S5"
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.SCREEN_CREATE,
-        resource_type=AuditResourceType.SCREEN,
-        resource_id="S5",
-        details={"code": "S5", "name": "Reports"},
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.SCREEN_CREATE
+    assert event.resource_type == AuditResourceType.SCREEN
+    assert event.resource_id == "S5"
+    assert event.details == {"code": "S5", "name": "Reports"}
 
 
 async def test_create_screen_success_grants_super_admin(fakes) -> None:
@@ -108,12 +108,12 @@ async def test_update_screen_success(fakes) -> None:
     )
 
     assert result.name == "New"
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.SCREEN_UPDATE,
-        resource_type=AuditResourceType.SCREEN,
-        resource_id="S5",
-        details={"name": "New"},
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.SCREEN_UPDATE
+    assert event.resource_type == AuditResourceType.SCREEN
+    assert event.resource_id == "S5"
+    assert event.details == {"name": "New"}
 
 
 async def test_update_screen_failure_not_found(fakes) -> None:
@@ -141,11 +141,11 @@ async def test_delete_screen_success(fakes) -> None:
     await screen_service.delete_screen(fakes.screen.id)
 
     assert fakes.deleted == [fakes.screen]
-    fakes.audit.assert_awaited_once_with(
-        action=AuditAction.SCREEN_DELETE,
-        resource_type=AuditResourceType.SCREEN,
-        resource_id="S5",
-    )
+    fakes.audit.assert_awaited_once()
+    event = fakes.audit.await_args.args[0]
+    assert event.action == AuditAction.SCREEN_DELETE
+    assert event.resource_type == AuditResourceType.SCREEN
+    assert event.resource_id == "S5"
 
 
 async def test_delete_screen_failure_not_found(fakes) -> None:
