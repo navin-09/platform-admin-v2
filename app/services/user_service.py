@@ -13,6 +13,7 @@ from app.models.platform_admin import PlatformAdmin
 from app.repositories import rbac_repository, user_repository
 from app.schemas.user import UserCreate, UserReplace, UserUpdate
 from app.services import audit_service
+from app.services.audit_service import AuditEvent
 
 
 async def _ensure_email_available(
@@ -42,10 +43,12 @@ async def create_user(data: UserCreate) -> PlatformAdmin:
     user = await user_repository.create_user(user)
     await rbac_repository.assign_super_admin(user.id)
     await audit_service.record(
-        action=AuditAction.USER_CREATE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(user.id),
-        details={"email": user.email, "name": user.username},
+        AuditEvent(
+            action=AuditAction.USER_CREATE,
+            resource_type=AuditResourceType.USER,
+            resource_id=str(user.id),
+            details={"email": user.email, "name": user.username},
+        )
     )
     return user
 
@@ -87,10 +90,12 @@ async def update_user(user_id: uuid.UUID, data: UserUpdate) -> PlatformAdmin:
         payload["current_refresh_jti"] = None
     user = await user_repository.update_user(user=user, data=payload)
     await audit_service.record(
-        action=AuditAction.USER_UPDATE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(user.id),
-        details=data.model_dump(exclude_unset=True, exclude_none=True, mode="json"),
+        AuditEvent(
+            action=AuditAction.USER_UPDATE,
+            resource_type=AuditResourceType.USER,
+            resource_id=str(user.id),
+            details=data.model_dump(exclude_unset=True, exclude_none=True, mode="json"),
+        )
     )
     return user
 
@@ -107,10 +112,12 @@ async def replace_user(user_id: uuid.UUID, data: UserReplace) -> PlatformAdmin:
     }
     user = await user_repository.update_user(user=user, data=payload)
     await audit_service.record(
-        action=AuditAction.USER_REPLACE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(user.id),
-        details={"email": data.email, "name": data.name},
+        AuditEvent(
+            action=AuditAction.USER_REPLACE,
+            resource_type=AuditResourceType.USER,
+            resource_id=str(user.id),
+            details={"email": data.email, "name": data.name},
+        )
     )
     return user
 
@@ -122,7 +129,9 @@ async def delete_user(user_id: uuid.UUID) -> None:
     user.current_refresh_jti = None
     await user_repository.delete_user(user)
     await audit_service.record(
-        action=AuditAction.USER_DELETE,
-        resource_type=AuditResourceType.USER,
-        resource_id=str(user_id),
+        AuditEvent(
+            action=AuditAction.USER_DELETE,
+            resource_type=AuditResourceType.USER,
+            resource_id=str(user_id),
+        )
     )

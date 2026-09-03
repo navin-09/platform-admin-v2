@@ -33,6 +33,7 @@ from app.models.export import Export
 from app.repositories import export_repository
 from app.schemas.export import AuditExportFilters, ExportCreate, UsersExportFilters
 from app.services import audit_service, xlsx_writer
+from app.services.audit_service import AuditEvent
 from app.utils.time import utcnow
 
 logger = logging.getLogger("app.services.export")
@@ -63,17 +64,17 @@ async def create_export(*, admin_email: str, data: ExportCreate) -> Export:
     _spawn_generation(export.id)
 
     await audit_service.record(
-        actor=admin_email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.EXPORT_GENERATED,
-        resource_type=AuditResourceType.EXPORT,
-        resource_id=str(export.id),
-        details={
-            "module": data.module,
-            "reason": data.reason,
-            "row_count": row_count,
-            "filters": filters,
-        },
+        AuditEvent(
+            action=AuditAction.EXPORT_GENERATED,
+            resource_type=AuditResourceType.EXPORT,
+            resource_id=str(export.id),
+            details={
+                "module": data.module,
+                "reason": data.reason,
+                "row_count": row_count,
+                "filters": filters,
+            },
+        )
     )
     return export
 
@@ -100,17 +101,17 @@ async def download_export(*, export_id: uuid.UUID, admin_email: str) -> FileResp
         raise ExportNotFoundError()
 
     await audit_service.record(
-        actor=admin_email,
-        actor_type=ActorType.ADMIN.value,
-        action=AuditAction.EXPORT_DOWNLOADED,
-        resource_type=AuditResourceType.EXPORT,
-        resource_id=str(export.id),
-        details={
-            "module": export.module,
-            "reason": export.reason,
-            "row_count": export.row_count,
-            "classification": export.classification,
-        },
+        AuditEvent(
+            action=AuditAction.EXPORT_DOWNLOADED,
+            resource_type=AuditResourceType.EXPORT,
+            resource_id=str(export.id),
+            details={
+                "module": export.module,
+                "reason": export.reason,
+                "row_count": export.row_count,
+                "classification": export.classification,
+            },
+        )
     )
     return FileResponse(path, media_type=XLSX_MEDIA_TYPE, filename=path.name)
 
